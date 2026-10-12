@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trtbench"
+version = "0.1.0"
+description = "Report tooling for the trtbench GPU inference measurement harness"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Emmanuel Adutwum" }]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[tool.setuptools.packages.find]
+where = ["python"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+pythonpath = ["python"]

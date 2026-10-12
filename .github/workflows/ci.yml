@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  cpu:
+    name: core + tests (${{ matrix.compiler }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: gcc
+            cxx: g++
+          - compiler: clang
+            cxx: clang++
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DTB_ENABLE_CUDA=OFF
+      - name: Build
+        run: cmake --build build -j
+      - name: C++ unit tests
+        run: ctest --test-dir build --output-on-failure
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python tests (reads the report the C++ tests wrote)
+        run: |
+          pip install pytest
+          TRTBENCH_SAMPLE_JSON=build/sample_report.json pytest -v
+
+  cuda-compile:
+    # No GPU on hosted runners. This job proves the device code and the CUDA
+    # runner compile with nvcc, that the binaries start without a driver, and
+    # that GPU tests skip rather than fail.
+    name: CUDA build, no GPU (skip path)
+    runs-on: ubuntu-24.04
+    container: nvidia/cuda:12.8.1-devel-ubuntu24.04
+    steps:
+      - name: Toolchain
+        run: apt-get update && apt-get install -y --no-install-recommends cmake git g++ ca-certificates
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DTB_ENABLE_CUDA=ON
+      - name: Build
+        run: cmake --build build -j
+      - name: Tests (GPU tests must report SKIPPED)
+        run: ctest --test-dir build --output-on-failure
+      - name: CLI fails cleanly without a device
+        run: |
+          ./build/trtbench --help > /dev/null
+          set +e
+          ./build/trtbench --op empty > out.txt 2>&1
+          code=$?
+          set -e
+          cat out.txt
+          test "$code" -eq 1
+          grep -q "no usable CUDA device" out.txt
