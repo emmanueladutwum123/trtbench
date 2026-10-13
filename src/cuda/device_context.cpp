@@ -85,10 +85,7 @@ std::unique_ptr<DeviceContext> DeviceContext::create(const ContextOptions& o) {
   }
 
   if (o.lock_clocks) {
-    unsigned mhz = o.lock_mhz;
-    if (mhz == 0 && c->env_.default_app_sm_clock_mhz > 0)
-      mhz = static_cast<unsigned>(c->env_.default_app_sm_clock_mhz);
-    c->lock_ = std::make_unique<ClockLock>(c->nvml_index_, mhz);
+    c->lock_ = std::make_unique<ClockLock>(c->nvml_index_, o.lock_mhz);
     c->lock_status_ = c->lock_->status();
   }
 

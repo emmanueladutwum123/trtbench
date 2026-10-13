@@ -3,7 +3,7 @@
 # workloads in both modes and write JSON under results/<gpu>-<date>/.
 #
 #   ./scripts/run_phase1.sh            # unlocked clocks (drift-checked)
-#   sudo -E ./scripts/run_phase1.sh --lock-clocks
+#   sudo -E ./scripts/run_phase1.sh --lock-clocks=1100
 #
 # Extra arguments are passed to every trtbench invocation.
 set -euo pipefail

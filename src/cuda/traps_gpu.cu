@@ -514,9 +514,13 @@ TrapResult t5(DeviceContext& ctx) {
   t.layer = kLayer;
   t.wrong = std::string("compare(fp32, fp16): ") + to_string(without.status);
   char buf[256];
-  std::snprintf(buf, sizeof buf,
-                "compare(fp32, fp16, accuracy): %s, p50 speedup %.2fx, max rel err %.1e -> %.1e",
-                to_string(with.status), with.speedup_p50, acc.baseline, acc.candidate);
+  if (with.status == ComparisonStatus::Ok)
+    std::snprintf(buf, sizeof buf,
+                  "compare(fp32, fp16, accuracy): ok, p50 speedup %.2fx, max rel err %.1e -> %.1e",
+                  with.speedup_p50, acc.baseline, acc.candidate);
+  else
+    std::snprintf(buf, sizeof buf, "compare(fp32, fp16, accuracy): %s (max rel err %.1e -> %.1e)",
+                  to_string(with.status), acc.baseline, acc.candidate);
   t.control = buf;
   const bool refused = without.status != ComparisonStatus::Ok && without.speedup_p50 == 0;
   t.detail = without.reason;

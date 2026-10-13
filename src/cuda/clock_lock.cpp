@@ -26,8 +26,7 @@ ClockLock::ClockLock(int nvml_index, unsigned mhz) : index_(nvml_index), mhz_(mh
     return;
   }
   if (mhz == 0) {
-    status_ = "not attempted: no target clock (NVML reported no default application clock); "
-              "pass --lock-clocks=<MHz>";
+    status_ = "not attempted: no target clock given; pass --lock-clocks=<MHz>";
     return;
   }
   const std::string m = std::to_string(mhz);

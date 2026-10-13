@@ -1,0 +1,151 @@
+{
+  "all_passed": true,
+  "environment": {
+    "compiler": "gcc 13.3.0",
+    "compute_capability": "7.5",
+    "cuda_driver_api_version": 13000,
+    "cuda_module_loading": "(unset: driver default)",
+    "cuda_runtime_version": 13000,
+    "default_app_sm_clock_mhz": 585,
+    "driver_version": "580.82.07",
+    "ecc_enabled": 1,
+    "git_sha": "9b41bd386797",
+    "gpu_name": "Tesla T4",
+    "hostname": "74f205446370",
+    "l2_bytes": 4194304,
+    "max_sm_clock_mhz": 1590,
+    "max_threads_per_sm": 1024,
+    "mem_bus_width_bits": 256,
+    "mem_clock_khz": 5001000.0,
+    "nvml_status": "ok",
+    "pci_bus_id": "0000:00:04.0",
+    "persistence_mode": 0,
+    "power_limit_w": 70.0,
+    "sm_count": 40,
+    "timestamp_utc": "2026-10-13T00:26:42Z",
+    "trtbench_version": "0.1.0"
+  },
+  "git_sha": "9b41bd386797",
+  "traps": [
+    {
+      "control": "accepted",
+      "detail": "fastest sample implies 23589782 GFLOP/s, above the 30290 GFLOP/s theoretical peak. The declared work did not all execute.",
+      "expect": "impossible_flops",
+      "id": "T1",
+      "layer": "synthetic",
+      "name": "result never used (dead-code-eliminated kernel)",
+      "outcome": "PASS",
+      "wrong": "REJECTED: impossible_flops, output_unverified, launch_bound, at_launch_floor"
+    },
+    {
+      "control": "accepted",
+      "detail": "300 of 300 samples have a host wall-clock interval shorter than the device event interval (worst by 2.1655 ms). The host timer did not wait for the device; it measured launch, not execution.",
+      "expect": "wallclock_below_device_time",
+      "id": "T2",
+      "layer": "synthetic",
+      "name": "host timer stopped without synchronize",
+      "outcome": "PASS",
+      "wrong": "REJECTED: wallclock_below_device_time"
+    },
+    {
+      "control": "none",
+      "detail": "first call 40.00 ms reported separately; p50 0.150 ms; a mean over every call would have said 0.282 ms",
+      "expect": "first_call_outlier, excluded from percentiles",
+      "id": "T3",
+      "layer": "synthetic",
+      "name": "no warmup: first-call cost",
+      "outcome": "PASS",
+      "wrong": "accepted: no_warmup (info: first_call_outlier)"
+    },
+    {
+      "control": "accepted",
+      "detail": "clocks moved during steady state: SM 1500-2040 MHz (26.5%), memory 6251-6251 MHz (0.0%); tolerance 5.0%",
+      "expect": "clock_drift",
+      "id": "T4",
+      "layer": "synthetic",
+      "name": "clocks drop during the run",
+      "outcome": "PASS",
+      "wrong": "REJECTED: clock_drift"
+    },
+    {
+      "control": "accepted",
+      "detail": "NVML reported sw_thermal during steady state",
+      "expect": "thermal_or_hw_throttle",
+      "id": "T4t",
+      "layer": "synthetic",
+      "name": "thermal slowdown at steady clocks",
+      "outcome": "PASS",
+      "wrong": "REJECTED: thermal_or_hw_throttle"
+    },
+    {
+      "control": "compare(fp32, fp16, accuracy): ok, 1.96x with max rel err 6.0e-08 -> 4.9e-04",
+      "detail": "precisions differ (fp32 vs fp16) and no accuracy delta was supplied; a lower-precision speedup is only reported next to what it cost in accuracy",
+      "expect": "comparison refused",
+      "id": "T5",
+      "layer": "synthetic",
+      "name": "FP16 vs FP32 speedup without accuracy",
+      "outcome": "PASS",
+      "wrong": "compare(fp32, fp16): refused"
+    },
+    {
+      "control": "accepted: power_cap_throttle",
+      "detail": "fastest sample implies 5242880 GFLOP/s, above the 8141 GFLOP/s theoretical peak. The declared work did not all execute. [dead p50 0.0057 ms vs live p50 3.4816 ms]",
+      "expect": "impossible_flops",
+      "id": "T1",
+      "layer": "gpu",
+      "name": "result never used (dead-code-eliminated kernel)",
+      "outcome": "PASS",
+      "wrong": "REJECTED: impossible_flops, power_cap_throttle, output_unverified (info: first_call_outlier)"
+    },
+    {
+      "control": "accepted: power_cap_throttle",
+      "detail": "200 of 200 samples have a host wall-clock interval shorter than the device event interval (worst by 2.3483 ms). The host timer did not wait for the device; it measured launch, not execution. [naive timer p50 0.0064 ms; events p50 2.3316 ms]",
+      "expect": "wallclock_below_device_time",
+      "id": "T2",
+      "layer": "gpu",
+      "name": "host timer stopped without synchronize",
+      "outcome": "PASS",
+      "wrong": "REJECTED: wallclock_below_device_time, clock_drift, power_cap_throttle"
+    },
+    {
+      "control": "none (first-call cost of a plain kernel depends on driver lazy loading)",
+      "detail": "first call 7.628 ms reported separately; p50 0.1516 ms; a mean over every call would have said 0.1678 ms",
+      "expect": "first_call_outlier, excluded from percentiles",
+      "id": "T3",
+      "layer": "gpu",
+      "name": "no warmup: first-call cost (simulated autotuning)",
+      "outcome": "PASS",
+      "wrong": "accepted: power_cap_throttle, no_warmup (info: first_call_outlier)"
+    },
+    {
+      "control": "accepted",
+      "detail": "clocks moved during steady state: SM 1113-1590 MHz (30.0%), memory 6251-6251 MHz (0.0%); tolerance 5.0%",
+      "expect": "clock_drift",
+      "id": "T4",
+      "layer": "gpu",
+      "name": "clocks drop during the run (scripted clock readings)",
+      "outcome": "PASS",
+      "wrong": "REJECTED: clock_drift"
+    },
+    {
+      "control": "none",
+      "detail": "clocks moved during steady state: SM 795-1410 MHz (43.6%), memory 5000-5000 MHz (0.0%); tolerance 5.0% [locked to 795 MHz mid-run]",
+      "expect": "clock_drift",
+      "id": "T4r",
+      "layer": "gpu",
+      "name": "clocks drop during the run (real, nvidia-smi -lgc)",
+      "outcome": "PASS",
+      "wrong": "REJECTED: clock_drift, power_cap_throttle"
+    },
+    {
+      "control": "compare(fp32, fp16, accuracy): untrustworthy, p50 speedup 0.00x, max rel err 2.2e-08 -> 3.6e-04",
+      "detail": "candidate 'trap/scale_fp16' failed its own audit; no speedup is reported from an invalid measurement | control inconclusive: candidate 'trap/scale_fp16' failed its own audit; no speedup is reported from an invalid measurement",
+      "expect": "comparison refused",
+      "id": "T5",
+      "layer": "gpu",
+      "name": "FP16 vs FP32 speedup without accuracy",
+      "outcome": "PASS",
+      "wrong": "compare(fp32, fp16): untrustworthy"
+    }
+  ]
+}

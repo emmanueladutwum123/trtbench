@@ -47,6 +47,7 @@ TEST(Compare, UntrustworthySideIsRefused) {
   const auto c = compare(with(Precision::FP32, 1.0), finalize(bad));
   EXPECT_EQ(c.status, ComparisonStatus::Untrustworthy);
   EXPECT_EQ(c.speedup_p50, 0.0);
+  EXPECT_NE(c.reason.find("impossible_bandwidth"), std::string::npos) << c.reason;
 }
 
 TEST(Compare, DifferentModesAreRefused) {

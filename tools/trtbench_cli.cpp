@@ -54,9 +54,10 @@ Measurement:
 
 Device:
   --device N          CUDA device ordinal         (default: 0)
-  --lock-clocks[=MHZ] lock SM clock via nvidia-smi -lgc (default MHz: NVML
-                      default application clock). Needs root; degrades to
-                      drift detection only when not permitted.
+  --lock-clocks=MHZ   lock the SM clock via nvidia-smi -lgc. Needs root;
+                      degrades to drift detection when not permitted. Choose
+                      a clock the GPU sustains under load: at or below
+                      clocks.sm_mhz.min from an unlocked run's JSON.
   --no-calibrate      skip launch-floor and copy-peak calibration
 
 Output:
@@ -138,7 +139,7 @@ Args parse(int argc, char** argv) {
     } else if (f == "--device") {
       a.ctx.device = static_cast<int>(to_long(f, next()));
     } else if (f == "--lock-clocks") {
-      a.ctx.lock_clocks = true;
+      usage_error("--lock-clocks needs a target, e.g. --lock-clocks=1100 (see --help)");
     } else if (f.rfind("--lock-clocks=", 0) == 0) {
       a.ctx.lock_clocks = true;
       a.ctx.lock_mhz = static_cast<unsigned>(to_long(f, f.c_str() + std::strlen("--lock-clocks=")));

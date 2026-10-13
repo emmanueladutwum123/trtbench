@@ -8,7 +8,12 @@ namespace trtbench::cuda {
 struct ContextOptions {
   int device = 0;
   bool lock_clocks = false;
-  unsigned lock_mhz = 0;   // 0 = NVML default application clock (the sustainable base clock)
+  // Required when lock_clocks is set. There is no safe default: NVML's
+  // "default application clock" is the base clock (585 MHz on a T4, a third
+  // of what it actually runs at), and the boost clock is not sustainable
+  // under a power cap. Pick a clock at or below the minimum an unlocked run
+  // observed under load (clocks.sm_mhz.min in its JSON).
+  unsigned lock_mhz = 0;
   bool calibrate = true;   // measure launch floors and the copy-bandwidth peak
 };
 

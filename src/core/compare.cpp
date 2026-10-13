@@ -11,6 +11,18 @@ const char* to_string(ComparisonStatus s) {
   return "?";
 }
 
+namespace {
+std::string invalid_flags(const Result& r) {
+  std::string out;
+  for (const auto& f : r.findings) {
+    if (f.severity != Severity::Invalid) continue;
+    if (!out.empty()) out += ", ";
+    out += to_string(f.flag);
+  }
+  return out;
+}
+}  // namespace
+
 Comparison compare(const Result& base, const Result& cand,
                    std::optional<AccuracyDelta> accuracy) {
   Comparison c;
@@ -18,9 +30,10 @@ Comparison compare(const Result& base, const Result& cand,
 
   if (!base.trustworthy() || !cand.trustworthy()) {
     c.status = ComparisonStatus::Untrustworthy;
-    c.reason = std::string(!base.trustworthy() ? "baseline '" + base.name + "'"
-                                               : "candidate '" + cand.name + "'") +
-               " failed its own audit; no speedup is reported from an invalid measurement";
+    const Result& bad = !base.trustworthy() ? base : cand;
+    c.reason = std::string(&bad == &base ? "baseline '" : "candidate '") + bad.name +
+               "' failed its own audit (" + invalid_flags(bad) +
+               "); no speedup is reported from an invalid measurement";
     return c;
   }
   if (base.config.mode != cand.config.mode) {

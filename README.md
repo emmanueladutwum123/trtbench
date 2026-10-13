@@ -12,20 +12,94 @@ inconsistent** instead of printing them.
 
 | Phase | Scope | State |
 |---|---|---|
-| 1 | Measurement core: event timing, warmup/steady state, clocks, roofline, JSON | **Code complete, CPU-tested. Not yet run on a GPU.** |
-| 5 | Trap suite: deliberately wrong benchmarks the harness must reject (`--self-test`) | **Synthetic layer passing in CI; SASS check passing in CI. GPU layer not yet run.** |
+| 1 | Measurement core: event timing, warmup/steady state, clocks, roofline, JSON | **Done.** Run on a Tesla T4 (results below) |
+| 5 | Trap suite: deliberately wrong benchmarks the harness must reject (`--self-test`) | **Done.** 12/12 traps pass on a Tesla T4; synthetic layer and SASS check run in CI |
 | 2 | TensorRT FP32/FP16/INT8 vs PyTorch eager vs ONNX Runtime; CUDA Graphs | Planned |
 | 3 | Per-layer attribution (IProfiler), fusion diff vs ONNX, roofline classification | Planned |
 | 4 | Fused LayerNorm + residual kernel, naive vs optimized, Nsight Compute | Planned |
 
 ## Results
 
-**There are no GPU results yet.** This repository was developed on a machine
-without an NVIDIA GPU. The CUDA code is compiled by `nvcc` in CI, and the
-logic that decides whether a measurement is believable is unit-tested on CPU,
-but nothing has been timed on a GPU. This table will only be filled from JSON
-in `results/`, produced by `scripts/run_phase1.sh` on hardware stated next to
-the numbers.
+All numbers below come from one session on a **Google Colab Tesla T4**. They
+are generated from the JSON in
+[`results/Tesla_T4-20261013/`](results/Tesla_T4-20261013) by
+`python -m trtbench.report`, and none were typed by hand. `nvidia-smi -q`
+from the same session is committed alongside them.
+
+> Tesla T4 (sm_75, 40 SMs), driver 580.82.07, CUDA runtime 13.0, ECC on,
+> persistence off, power limit 70 W, **clocks unlocked**, trtbench
+> `9b41bd386797`, 2026-10-13. One run per mode; sample counts are per row.
+
+### Phase 1 reference workloads
+
+Latency mode (one launch per sample, synchronized):
+
+| Workload | Samples | Device p50 (µs) | Device p99 (µs) | Host enqueue p50 (µs) | Achieved | SM clock (MHz) | Verdict |
+|---|---:|---:|---:|---:|---|---|---|
+| empty_kernel | 1325 | 4.10 | 19.62 | 2.74 | – | 1590–1590 | accepted (output_unverified, high_variance) |
+| copy_256MiB | 377 | 2,334.11 | 2,351.97 | 3.76 | 230.0 GB/s (71.9% of theoretical) | 1365–1395 | accepted (power_cap_throttle) |
+| fma_fp32_x16384 | 475 | – | – | – | – | 1170–1260 | **rejected**: clock_drift |
+
+Throughput mode (100 launches per sample for the empty kernel, 10 otherwise):
+
+| Workload | Samples | Device p50 (µs) | Device p99 (µs) | Host enqueue p50 (µs) | Achieved | SM clock (MHz) | Verdict |
+|---|---:|---:|---:|---:|---|---|---|
+| empty_kernel | 1000 | 2.58 | 3.94 | 2.56 | – | 1590–1590 | accepted (output_unverified) |
+| copy_256MiB | 200 | 2,322.23 | 2,324.85 | 2.88 | 231.2 GB/s (72.2% of theoretical) | 1320–1365 | accepted (power_cap_throttle) |
+| fma_fp32_x16384 | 200 | 1,832.71 | 1,842.69 | 2.95 | 5,859 GFLOP/s (95.4% of peak at run clock) | 1185–1200 | accepted (power_cap_throttle) |
+
+### What the run showed
+
+- **The harness rejected one of its own measurements.** The latency-mode FMA
+  run saw the SM clock wander between 1170 and 1260 MHz (7.1%) under the
+  70 W power cap, above the 5% tolerance. The table therefore gives no number
+  for that row. The throughput-mode run of the same kernel stayed within 1.3%
+  and was accepted.
+- **On this card the power cap sets the clock, not the clock policy.** The SM
+  clock was 1590 MHz for the empty kernel, 1320–1395 MHz for the copy, and
+  1170–1260 MHz for the FMA. Measured against the SM clock observed during
+  the run, the FMA kernel reaches 95.4% of FP32 peak. Against the 1590 MHz
+  datasheet peak the same run is only 72.0% (5,859 of 8,141 GFLOP/s). This is
+  why % of peak is scaled to the observed clock: a single fixed peak would
+  misstate either the kernel or the card.
+- **Correctness held on hardware.** The copy output matched the input exactly
+  at 4,097 sampled positions. The FMA output was bit-exact against the
+  host's software FMA replica at 128 sampled threads.
+- **The first call was faster than steady state.** In latency mode the FMA's
+  first call took 1,517 µs against a steady-state p50 of 1,741 µs. It ran
+  before the power cap pulled the clock down (1470 MHz before warmup), so
+  warmup here exists to reach a steady power state, not just to absorb setup
+  cost. Because the first call is always reported separately, this showed up
+  instead of being averaged in.
+- **Launch-scale timings moved between processes.** The empty-kernel latency
+  floor was 4.06 µs in one process and 5.70 µs in the next, minutes later,
+  on the same VM. Throughput-mode floors moved from 2.50 to 3.46 µs. On this
+  shared host, differences of tens of percent in microsecond-scale numbers
+  between separate runs are noise.
+- **Copy bandwidth.** The copy reached 72% of the 320 GB/s theoretical peak
+  with ECC enabled. ECC was not turned off for comparison, so this run cannot
+  say how much of the gap ECC accounts for. "% of measured peak" is about
+  100% for the copy by construction: the copy *is* the reference.
+
+### Trap suite on the T4
+
+All 12 traps passed: 6 synthetic and 6 on the GPU. Full table:
+`python -m trtbench.report results/Tesla_T4-20261013/self_test.json`.
+
+- **T1**: the dead kernel ran in 5.7 µs (p50) against 3,482 µs for the live
+  control. That implies 5.2 PFLOP/s on an 8.1 TFLOP/s part, and it was
+  rejected as `impossible_flops`.
+- **T2**: the timer with no synchronize reported 6.4 µs while the events
+  measured 2,332 µs, and it was rejected as `wallclock_below_device_time`.
+- **T3**: the first call (7.6 ms) was surfaced and kept out of the reported
+  distribution (p50 0.152 ms).
+- **T4r ran rather than skipping**: `nvidia-smi -lgc` was permitted on Colab.
+  The clock really was locked to 795 MHz mid-run, and the harness rejected
+  the run for `clock_drift`.
+- **T5's refusal held, but its control was inconclusive.** The FP16 run
+  itself failed its audit during the session. A refused comparison does not
+  report which flag caused it, so the cause was not recorded. Refusals now
+  name their flags, and T5 will be re-run with locked clocks.
 
 ## Methodology
 
@@ -105,11 +179,17 @@ comment explaining why it is there:
   - A software power cap is a warning, not a rejection. Steady power-capped
     clocks are normal for a 72 W L4 under load, and the drift check catches
     them if they move.
-- **Locking.** `--lock-clocks[=MHz]` runs `nvidia-smi -lgc` with the NVML
-  default application clock as the default target, and resets with `-rgc` on
-  exit. This usually needs root. When it is not permitted the reason is
-  recorded in the report and the run continues, with drift detection as the
-  only defence.
+- **Locking.** `--lock-clocks=MHz` runs `nvidia-smi -lgc` and resets with
+  `-rgc` on exit. It usually needs root; it was permitted on Colab. When it
+  is not permitted, the reason is recorded in the report and the run
+  continues, with drift detection as the only defence.
+
+  There is deliberately **no default target**. An earlier version used NVML's
+  "default application clock", which on the T4 is 585 MHz, about a third of
+  the clock the card actually runs at. The boost clock is no good either: it
+  is not sustainable under a power cap. Choose a clock at or below the
+  minimum an unlocked run observed under load (`clocks.sm_mhz.min` in its
+  JSON).
 
 ### Peaks and the roofline
 
@@ -244,7 +324,7 @@ CMake.
 ```bash
 ./build-gpu/trtbench --self-test --json results/<gpu>/self_test.json
 ./scripts/run_phase1.sh                       # clocks unlocked, drift-checked
-sudo -E ./scripts/run_phase1.sh --lock-clocks # clocks locked where permitted
+sudo -E ./scripts/run_phase1.sh --lock-clocks=1100   # locked where permitted
 python -m trtbench.diff results/A/phase1_latency.json results/B/phase1_latency.json
 ```
 
@@ -269,11 +349,14 @@ results/                committed raw JSON from real runs
 
 ## What this does not show
 
-- **No GPU numbers yet.** Everything above describes what the harness does.
-  It has not yet produced a measurement.
-- Results will come from a **single GPU model** (planned: one rented L4 or
-  A10G). They say nothing about other architectures, and the arch table has
-  peaks only for sm_70, 75, 80, 86, 87, 89 and 90.
+- **One GPU, one session, shared hardware.** All results come from a single
+  Colab T4 VM, which is shared infrastructure with unknown co-tenancy, and
+  from one run per mode. They say nothing about other architectures, and the
+  arch table has peaks only for sm_70, 75, 80, 86, 87, 89 and 90.
+- **The Phase 1 numbers were taken with clocks unlocked.** They are
+  power-cap-governed, and each row states the clock range it ran at.
+- **T5 on the GPU has not yet shown a reported FP16 speedup.** It has shown
+  only the refusal.
 - **Compute peaks come from a table, not a measurement.** The FP16
   tensor-core figure is the datacenter rate; GeForce parts run FP16 with FP32
   accumulation at half that rate. INT8 has no peak until Phase 2.
@@ -288,9 +371,6 @@ results/                committed raw JSON from real runs
   lower every "% of peak".
 - The CPU-side wall-clock cross-check catches a host timer that stops early.
   It **cannot detect** a device timer that is wrong in a consistent way.
-- **The GPU layer of the trap suite has not run yet.** CI shows that it
-  compiles and skips correctly, and that T1's kernel really is eliminated.
-  Whether each GPU trap is caught end to end is still unverified.
 - **The synthetic traps test the auditor's rules, not the GPU.** They prove
   the rules fire on the data shapes they were designed for. They do not prove
   a real GPU produces those shapes; the GPU layer exists to check that.
@@ -305,8 +385,8 @@ results/                committed raw JSON from real runs
   number at least as long as the device time and is not caught. That number
   is then dominated by launch overhead, which `launch_bound` reports in
   latency mode.
-- **T4 on the GPU uses scripted clock readings.** Only T4r changes the real
-  clock, and it needs root.
+- **T4 on the GPU uses scripted clock readings.** T4r changes the real
+  clock; it needs root, which Colab allowed.
 - Not tested: multi-GPU, MIG, MPS, distributed inference, or concurrent
   workloads sharing the GPU.
 
