@@ -13,7 +13,7 @@ inconsistent** instead of printing them.
 | Phase | Scope | State |
 |---|---|---|
 | 1 | Measurement core: event timing, warmup/steady state, clocks, roofline, JSON | **Code complete, CPU-tested. Not yet run on a GPU.** |
-| 5 | Trap suite: deliberately wrong benchmarks the harness must reject (`--self-test`) | Next |
+| 5 | Trap suite: deliberately wrong benchmarks the harness must reject (`--self-test`) | **Synthetic layer passing in CI; SASS check passing in CI. GPU layer not yet run.** |
 | 2 | TensorRT FP32/FP16/INT8 vs PyTorch eager vs ONNX Runtime; CUDA Graphs | Planned |
 | 3 | Per-layer attribution (IProfiler), fusion diff vs ONNX, roofline classification | Planned |
 | 4 | Fused LayerNorm + residual kernel, naive vs optimized, Nsight Compute | Planned |
@@ -163,6 +163,63 @@ When a comparison involves two precisions (for example FP32 against FP16), it
 is refused unless an accuracy delta is supplied with it. A faster
 lower-precision engine is only reported next to what it cost in accuracy.
 
+## The trap suite (`--self-test`)
+
+A harness that never sees a wrong measurement has not shown it can catch
+one. `trtbench --self-test` runs benchmarks that are wrong on purpose and
+checks that the harness rejects each one. Each trap also has a **control**: a
+correct version of the same measurement, which must *not* be flagged for the
+same reason. A harness that flags everything therefore fails its own
+self-test.
+
+| ID | Wrong benchmark | Harness must report | Control |
+|---|---|---|---|
+| T1 | FMA loop whose result is never stored, so the compiler deletes it, while the benchmark still claims the FLOPs | `impossible_flops` | same loop, result stored |
+| T2 | `t0 = now; launch; t1 = now` with no synchronize, so it times the launch, not the work | `wallclock_below_device_time` | the harness's own synchronized measurement |
+| T3 | no warmup, with a first call that runs the kernel 50 extra times (modelling autotuning) on top of a lazy module load | `first_call_outlier`; first call excluded from the percentiles; `no_warmup` | none (see below) |
+| T4 | SM clock drops 30% partway through steady state | `clock_drift` | same run, steady clocks |
+| T4r | the SM clock is really halved with `nvidia-smi -lgc` mid-run | `clock_drift` | (T4's) |
+| T4t | clocks steady, but NVML reports a thermal slowdown | `thermal_or_hw_throttle` | no reason bits |
+| T5 | FP16 vs FP32 `y = 1.1x` over 64M elements, comparing speed only | comparison refused | the same comparison with a measured accuracy delta must be reported |
+
+**Two layers.**
+- The **synthetic** layer (T1–T5, plus T4t) is pure CPU. It feeds the
+  auditor the exact data each wrong benchmark produces on an L4-class GPU. It
+  runs in every CI job and as a ctest test, so a regression in any audit rule
+  fails the build.
+- The **GPU** layer (T1–T5, plus T4r) really executes the wrong benchmarks on
+  the device. It reports SKIP, with the reason, when there is no device. T4r
+  needs permission to change clocks and skips without it. In the GPU T4, the
+  timing is real but the clock readings are scripted; this proves the runner
+  consults the clocks during steady state and that a drop reaches the
+  verdict.
+
+**T1 is checked against the compiled code, not just the timing.**
+`scripts/check_dce_sass.py` reads the SASS for every architecture in the
+binary. CI runs it on each push; the latest run shows:
+
+| | sm_75 | sm_80 | sm_86 | sm_89 | sm_90 |
+|---|---|---|---|---|---|
+| live `fma_kernel` (control): FFMA count | 48 | 48 | 48 | 48 | 48 |
+| `trap_dead_fma_kernel`: FFMA count | 0 | 0 | 0 | 0 | 0 |
+
+The dead kernel compiles to a check on the loop count followed by `EXIT`;
+the loop body is gone. The GPU layer then has to catch the empty kernel from
+its timing alone.
+
+**Why T3 has no control.** Whether a plain kernel's first call is an outlier
+depends on the driver's lazy module loading (`CUDA_MODULE_LOADING`), so "the
+control must not be flagged" would test the driver, not the harness. T3
+instead asserts three things:
+- the outlier is surfaced;
+- the first call lies outside the reported distribution;
+- the missing warmup is warned about.
+
+Its output also states what a mean over every call would have reported.
+
+When any trap fails, `--self-test` exits with status 4, and `--json PATH`
+writes the table as JSON.
+
 ## Build
 
 ```bash
@@ -185,6 +242,7 @@ CMake.
 ## Running on a GPU
 
 ```bash
+./build-gpu/trtbench --self-test --json results/<gpu>/self_test.json
 ./scripts/run_phase1.sh                       # clocks unlocked, drift-checked
 sudo -E ./scripts/run_phase1.sh --lock-clocks # clocks locked where permitted
 python -m trtbench.diff results/A/phase1_latency.json results/B/phase1_latency.json
@@ -202,7 +260,8 @@ include/trtbench/       core interfaces (pure C++17)
 include/trtbench/cuda/  Workload, DeviceContext, runner, NVML, clock lock
 src/core/               stats, clocks, roofline, audit, compare, JSON
 src/cuda/               event-timed runner, NVML via dlopen, calibration kernels
-tools/                  trtbench CLI
+tools/                  trtbench CLI (CPU-only builds: --self-test only)
+scripts/                run_phase1.sh, check_dce_sass.py
 python/trtbench/        report loading, validation, diff
 tests/cpp, tests/python unit tests; GPU tests skip without a device
 results/                committed raw JSON from real runs
@@ -229,6 +288,25 @@ results/                committed raw JSON from real runs
   lower every "% of peak".
 - The CPU-side wall-clock cross-check catches a host timer that stops early.
   It **cannot detect** a device timer that is wrong in a consistent way.
+- **The GPU layer of the trap suite has not run yet.** CI shows that it
+  compiles and skips correctly, and that T1's kernel really is eliminated.
+  Whether each GPU trap is caught end to end is still unverified.
+- **The synthetic traps test the auditor's rules, not the GPU.** They prove
+  the rules fire on the data shapes they were designed for. They do not prove
+  a real GPU produces those shapes; the GPU layer exists to check that.
+- **Dead code is caught by rate, so the size of the declared work matters.**
+  T1 is caught because the declared work (58 SMs × 1536 threads × 32768
+  iterations × 16 = 4.7e10 FLOPs per launch on an L4) cannot finish in the few microseconds an empty kernel takes. An
+  eliminated kernel that declares only a little work is indistinguishable
+  from a fast one. The defences in that case are weaker: `at_launch_floor`,
+  and output checking where the workload provides it.
+- **The no-sync trap relies on the work outlasting the launch.** When a
+  kernel is shorter than its own launch overhead, a no-sync timer reports a
+  number at least as long as the device time and is not caught. That number
+  is then dominated by launch overhead, which `launch_bound` reports in
+  latency mode.
+- **T4 on the GPU uses scripted clock readings.** Only T4r changes the real
+  clock, and it needs root.
 - Not tested: multi-GPU, MIG, MPS, distributed inference, or concurrent
   workloads sharing the GPU.
 

@@ -68,14 +68,15 @@ const TrapSpec& spec(const char* id) {
 
 // T1: an FMA kernel whose result is never stored. The compiler deletes the
 // body, so it runs as fast as an empty kernel while still "declaring" the
-// work it was supposed to do. 58 SMs x 2048 threads x 65536 iters x 16 FLOP
-// = 1.25e11 FLOP; the live kernel takes ~4.6 ms (27 TFLOPS), the dead one
-// takes the 4 us launch floor (31 PFLOPS).
+// work it was supposed to do. L4: 58 SMs x 1536 threads x 65536 iters x 16
+// FLOP = 9.3e10 FLOP; the live kernel takes ~3.4 ms (27 TFLOPS), the dead one
+// takes the 4 us launch floor (23 PFLOPS).
 TrapResult t1() {
-  const std::uint64_t flops = 118784ull * 65536 * 16;
+  const std::uint64_t threads = 58ull * 1536;
+  const std::uint64_t flops = threads * 65536 * 16;
   FinalizeInput wrong = base("dead_fma", 0, flops, 0.004);
   wrong.checksum = {false, false, 0, "result never stored"};
-  FinalizeInput control = base("live_fma", 118784ull * 4, flops, 4.6);
+  FinalizeInput control = base("live_fma", threads * 4, flops, 3.4);
   const Result w = finalize(wrong), c = finalize(control);
   return judge_flag(spec("T1"), kLayer, Flag::ImpossibleFlops, w, &c);
 }
