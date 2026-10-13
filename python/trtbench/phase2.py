@@ -22,6 +22,10 @@ import numpy as np
 
 from . import accuracy, models
 
+# Bump when prepare's output changes meaning, so a resumed run redoes stale
+# variants. 2: AutoCast ranges come from real inputs, not random ones.
+PREPARE_VERSION = 2
+
 # --------------------------------------------------------------------------- io
 
 
@@ -59,8 +63,6 @@ def _torch_no_tf32():
 def prepare(work: Path, names: List[str], cache: Path) -> None:
     import onnx
     import torch
-    from modelopt.onnx.autocast import convert_to_mixed_precision
-    from modelopt.onnx.quantization import quantize
 
     from . import data
     from .onnx_stats import graph_stats
@@ -83,31 +85,30 @@ def prepare(work: Path, names: List[str], cache: Path) -> None:
                  "shapes": {k: list(v.shape[1:]) for k, v in ev.items()}}))
         ev = _load_eval(mdir, spec)
 
-        calib = None
+        # Calibration set, saved once: the ModelOpt steps read it in a child process.
+        calib_path = mdir / "calib.npz"
+        if not calib_path.exists():
+            print(f"[prepare] {name}: calibration data", flush=True)
+            calib, _ = data.model_inputs(name, cache, "calib")
+            np.savez(calib_path, **calib)
+            del calib
+
         module = None
         for batch in spec.batches:
             bdir = mdir / f"b{batch}"
             bdir.mkdir(exist_ok=True)
-            if (bdir / "prepare.json").exists():
+            done = bdir / "prepare.json"
+            if done.exists() and json.loads(done.read_text()).get("version") == PREPARE_VERSION:
                 print(f"[prepare] {name} b{batch}: exists")
                 continue
             print(f"[prepare] {name} b{batch}: export", flush=True)
             export = models.export_onnx(spec, batch, bdir / "fp32.onnx")
 
             print(f"[prepare] {name} b{batch}: FP16 (ModelOpt AutoCast)", flush=True)
-            onnx.save(convert_to_mixed_precision(onnx_path=str(bdir / "fp32.onnx"),
-                                                 low_precision_type="fp16", keep_io_types=True),
-                      str(bdir / "fp16.onnx"))
-
-            if calib is None:
-                print(f"[prepare] {name}: calibration data", flush=True)
-                calib, _ = data.model_inputs(name, cache, "calib")
+            _modelopt_child("fp16", bdir, calib_path, batch)
             print(f"[prepare] {name} b{batch}: INT8 (ModelOpt PTQ, entropy, "
-                  f"{len(next(iter(calib.values())))} samples)", flush=True)
-            quantize(onnx_path=str(bdir / "fp32.onnx"), quantize_mode="int8",
-                     calibration_data=calib, calibration_method="entropy",
-                     calibration_eps=["cuda:0", "cpu"], high_precision_dtype="fp16",
-                     output_path=str(bdir / "int8.onnx"))
+                  f"{data.N_CALIB} samples)", flush=True)
+            _modelopt_child("int8", bdir, calib_path, batch)
 
             for prec in ("fp32", "fp16", "int8"):
                 st = graph_stats(onnx.load(str(bdir / f"{prec}.onnx")))
@@ -124,6 +125,7 @@ def prepare(work: Path, names: List[str], cache: Path) -> None:
             _save_bin(bdir / f"ref_{spec.output_name}.bin", ref.float().cpu().numpy())
 
             (bdir / "prepare.json").write_text(json.dumps({
+                "version": PREPARE_VERSION,
                 "export": export,
                 "bench_inputs": {k: f"input_{k}.bin" for k in spec.input_names},
                 "reference_outputs": {spec.output_name: f"ref_{spec.output_name}.bin"},
@@ -131,7 +133,8 @@ def prepare(work: Path, names: List[str], cache: Path) -> None:
                 "eval_count": int(len(next(iter(ev.values())))),
                 "variants": {
                     "fp32": {"how": "exported graph, constant-folded"},
-                    "fp16": {"how": "modelopt.onnx.autocast fp16, keep_io_types=True"},
+                    "fp16": {"how": "modelopt.onnx.autocast fp16, keep_io_types=True, "
+                                    f"ranges from {batch} real calibration samples"},
                     "int8": {"how": "modelopt.onnx.quantization int8, entropy calibration, "
                                     "high_precision_dtype=fp16",
                              "calibration": data.CALIBRATION_SET[name],
@@ -139,6 +142,47 @@ def prepare(work: Path, names: List[str], cache: Path) -> None:
                 },
             }, indent=2))
         del module
+
+
+def _modelopt_child(kind: str, bdir: Path, calib_path: Path, batch: int) -> None:
+    """Run one ModelOpt conversion in a fresh process. AutoCast keeps every
+    intermediate tensor of a reference run in host memory, and ModelOpt and
+    ONNX Runtime do not hand memory back between models; in one long-lived
+    process BERT b8 was OOM-killed on a 12.7 GB Colab VM. A child process
+    returns everything to the OS when it exits."""
+    import subprocess
+
+    cmd = [sys.executable, "-m", "trtbench.phase2", "_modelopt", kind, str(bdir),
+           str(calib_path), str(batch)]
+    r = subprocess.run(cmd)
+    if r.returncode != 0:
+        raise RuntimeError(f"ModelOpt {kind} for {bdir} failed (exit {r.returncode}"
+                           f"{', killed: out of memory?' if r.returncode == -9 else ''})")
+
+
+def _modelopt(kind: str, bdir: Path, calib_path: Path, batch: int) -> None:
+    calib = dict(np.load(calib_path))
+    src = str(bdir / "fp32.onnx")
+    if kind == "fp16":
+        import onnx
+        from modelopt.onnx.autocast import convert_to_mixed_precision
+
+        # Exactly one batch of real data. Without it AutoCast feeds random
+        # values in [-1, 1], which for token-id inputs means ids -1/0/1, and
+        # its keep-in-FP32 decisions come from ranges no real input produces.
+        # One batch, because it keeps every intermediate of every batch.
+        one = bdir / "autocast_inputs.npz"
+        np.savez(one, **{k: v[:batch] for k, v in calib.items()})
+        model = convert_to_mixed_precision(onnx_path=src, low_precision_type="fp16",
+                                           keep_io_types=True, calibration_data=str(one))
+        onnx.save(model, str(bdir / "fp16.onnx"))
+        one.unlink()
+    else:
+        from modelopt.onnx.quantization import quantize
+
+        quantize(onnx_path=src, quantize_mode="int8", calibration_data=calib,
+                 calibration_method="entropy", calibration_eps=["cuda:0", "cpu"],
+                 high_precision_dtype="fp16", output_path=str(bdir / "int8.onnx"))
 
 
 # --------------------------------------------------------------------------- baselines
@@ -340,6 +384,11 @@ def main(argv: List[str] | None = None) -> int:
             s.add_argument("--mode", default="latency")
         s.add_argument("--models", nargs="*", default=models.model_ids())
         s.add_argument("--cache", type=Path, default=Path.home() / ".cache" / "trtbench")
+    s = sub.add_parser("_modelopt")  # internal: one conversion, see _modelopt_child
+    s.add_argument("kind", choices=("fp16", "int8"))
+    s.add_argument("bdir", type=Path)
+    s.add_argument("calib", type=Path)
+    s.add_argument("batch", type=int)
     s = sub.add_parser("score")
     s.add_argument("work", type=Path)
     s.add_argument("meta", type=Path)
@@ -353,6 +402,8 @@ def main(argv: List[str] | None = None) -> int:
         from .engines import build_all
 
         build_all(a.work, a.models)
+    elif a.cmd == "_modelopt":
+        _modelopt(a.kind, a.bdir, a.calib, a.batch)
     elif a.cmd == "baselines":
         baselines(a.work, a.out, a.models, {"mode": a.mode})
     else:

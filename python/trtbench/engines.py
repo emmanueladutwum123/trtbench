@@ -60,7 +60,11 @@ def build_all(work: Path, models, rebuild: bool = False) -> None:
             for prec in PRECISIONS:
                 onnx_path = bdir / f"{prec}.onnx"
                 meta_path = bdir / f"{prec}.meta.json"
-                if meta_path.exists() and not rebuild:
+                # A meta older than its ONNX describes an engine built from a
+                # previous variant (prepare redid it), so rebuild.
+                fresh = (meta_path.exists() and onnx_path.exists()
+                         and meta_path.stat().st_mtime >= onnx_path.stat().st_mtime)
+                if fresh and not rebuild:
                     print(f"[engines] {name} b{batch} {prec}: exists")
                     continue
                 if not onnx_path.exists():
