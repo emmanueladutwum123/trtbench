@@ -39,6 +39,7 @@ add_library(trtbench_core
   src/core/json.cpp
   src/core/traps.cpp
   src/core/traps_synthetic.cpp
+  src/core/layer_profile.cpp
 )
 target_include_directories(trtbench_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(trtbench_core PUBLIC nlohmann_json::nlohmann_json)

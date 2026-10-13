@@ -28,6 +28,14 @@ PRECISIONS = ("fp32", "fp16", "int8")
 # within 0.8 points of FP32); the threshold was set after seeing that run.
 SANITY_MIN_COSINE = {"fp32": 0.99, "fp16": 0.99, "int8": 0.95}
 
+# Engines are built with kDETAILED profiling verbosity, so the engine
+# inspector can name the ONNX nodes each engine layer came from (Phase 3).
+# Timing and profiling must use the same engine: two builds of one graph may
+# select different tactics. The verbosity's extra NVTX markers are switched
+# back to the default level at run time (engine_workload.cpp). An engine
+# built before this setting is rebuilt.
+PROFILING_VERBOSITY = "detailed"
+
 
 def build_engine(onnx_path: Path, plan_path: Path, timing_cache: Path) -> Dict:
     import tensorrt as trt
@@ -42,6 +50,7 @@ def build_engine(onnx_path: Path, plan_path: Path, timing_cache: Path) -> Dict:
 
     config = builder.create_builder_config()
     config.clear_flag(trt.BuilderFlag.TF32)
+    config.profiling_verbosity = trt.ProfilingVerbosity.DETAILED
     blob = timing_cache.read_bytes() if timing_cache.exists() else b""
     cache = config.create_timing_cache(blob)
     config.set_timing_cache(cache, ignore_mismatch=False)
@@ -53,7 +62,7 @@ def build_engine(onnx_path: Path, plan_path: Path, timing_cache: Path) -> Dict:
     plan_path.write_bytes(bytes(plan))
     timing_cache.write_bytes(bytes(cache.serialize()))
     return {"trt_version": trt.__version__, "build_seconds": round(time.time() - t, 1),
-            "layers_in_network": network.num_layers}
+            "layers_in_network": network.num_layers, "profiling_verbosity": PROFILING_VERBOSITY}
 
 
 def build_all(work: Path, models, rebuild: bool = False) -> None:
@@ -76,9 +85,10 @@ def build_all(work: Path, models, rebuild: bool = False) -> None:
                 if not onnx_path.exists():
                     print(f"[engines] {name} b{batch} {prec}: NO ONNX ({onnx_path.name}); skipped")
                     continue
-                if fresh and not rebuild:
-                    old = json.loads(meta_path.read_text())
-                    info = {k: old[k] for k in ("trt_version", "build_seconds", "layers_in_network")}
+                old = json.loads(meta_path.read_text()) if fresh else {}
+                if fresh and not rebuild and old.get("profiling_verbosity") == PROFILING_VERBOSITY:
+                    keys = ("trt_version", "build_seconds", "layers_in_network", "profiling_verbosity")
+                    info = {k: old[k] for k in keys}
                     print(f"[engines] {name} b{batch} {prec}: exists")
                 else:
                     print(f"[engines] {name} b{batch} {prec}: building", flush=True)

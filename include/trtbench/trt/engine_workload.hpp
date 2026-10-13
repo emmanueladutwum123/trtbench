@@ -3,6 +3,9 @@
 #include <memory>
 #include <string>
 
+#include <nlohmann/json.hpp>
+
+#include "trtbench/clocks.hpp"
 #include "trtbench/cuda/workload.hpp"
 
 namespace trtbench::trt {
@@ -31,5 +34,17 @@ std::unique_ptr<cuda::Workload> make_engine_workload(const std::string& meta_pat
 // engine and writes all outputs, FP32, concatenated, to out_path. Untimed.
 // Returns the number of samples written.
 std::size_t evaluate_engine(const std::string& meta_path, const std::string& out_path);
+
+// Phase 3 support: per-layer attribution of one engine. Untimed by the
+// harness runner; it reports
+//   - per-layer times from TensorRT's IProfiler over `runs` inferences,
+//   - end-to-end device time of the same inferences (profiler attached) and of
+//     `runs` inferences without the profiler, so the profiler's own cost is
+//     stated instead of hidden in the layer times,
+//   - SM/memory clocks over the run (same drift summary as the runner),
+//   - the engine inspector's JSON description of every layer (fused ONNX
+//     nodes, formats, tactics; needs an engine built with kDETAILED).
+nlohmann::json profile_engine(const std::string& meta_path, int warmup, int runs,
+                              ClockSource& clocks);
 
 }  // namespace trtbench::trt

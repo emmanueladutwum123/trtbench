@@ -9,6 +9,7 @@ add_executable(trtbench_core_tests
   test_compare.cpp
   test_json.cpp
   test_traps.cpp
+  test_layer_profile.cpp
 )
 target_link_libraries(trtbench_core_tests PRIVATE trtbench_core GTest::gtest_main)
 target_compile_options(trtbench_core_tests PRIVATE ${TB_HOST_WARNINGS})

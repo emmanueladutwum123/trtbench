@@ -15,7 +15,7 @@ inconsistent** instead of printing them.
 | 1 | Measurement core: event timing, warmup/steady state, clocks, roofline, JSON | **Done.** Run on a Tesla T4 (results below) |
 | 5 | Trap suite: deliberately wrong benchmarks the harness must reject (`--self-test`) | **Done.** 12/12 traps pass on a Tesla T4; synthetic layer and SASS check run in CI |
 | 2 | TensorRT FP32/FP16/INT8 vs PyTorch eager vs ONNX Runtime; CUDA Graphs | **First T4 run rejected by the harness itself (31 of 54 timings: clock drift, broken INT8). Both causes fixed; rerun pending.** [Details](#first-t4-run-rejected) |
-| 3 | Per-layer attribution (IProfiler), fusion diff vs ONNX, roofline classification | Planned |
+| 3 | Per-layer attribution (IProfiler), fusion diff vs ONNX, roofline classification | **Built, not yet run.** Analysis unit-tested on CPU; GPU profiling waits for Colab GPU quota. [Method](#phase-3-where-the-time-goes) |
 | 4 | Fused LayerNorm + residual kernel, naive vs optimized, Nsight Compute | Planned |
 
 ## Results
@@ -352,6 +352,14 @@ implicit INT8 calibrator are gone.
   was set *after* the first run, where correct ResNet-50 INT8 engines scored
   0.971–0.985 with top-1 within 0.8 points of FP32.
 
+**Engine build.** TF32 off, a shared timing cache, and `kDETAILED`
+profiling verbosity, so the engine inspector can name the ONNX nodes behind
+every layer (Phase 3 profiles the very engines timed here, since two builds
+of one graph may pick different kernels). TensorRT warns that `kDETAILED`
+adds NVTX markers that slow `enqueueV3`, so every execution context switches
+its markers back to the default level (`setNvtxVerbosity(kLAYER_NAMES_ONLY)`)
+before timing.
+
 **INT8 calibration set**: 512 samples per model, taken from the *training*
 split, so they never overlap the evaluation set.
 - ResNet-50: 512 Imagenette-320 train images.
@@ -389,6 +397,65 @@ Without one, the table says "refused".
 Outputs must be finite and have cosine similarity of at least 0.99 with the
 FP32 PyTorch output on the same input. That catches broken bindings or
 engines; it is not an accuracy measurement.
+
+## Phase 3: where the time goes
+
+A total latency is a fact; an attribution is an argument. `scripts/run_phase3.sh`
+profiles every Phase 2 engine at the same clock lock and writes, per engine,
+which layers the time goes to, which ONNX nodes TensorRT fused into each
+layer, and whether a faster kernel for that layer could help at all. **No
+GPU results yet**: the code and its CPU tests are done; the run waits for the
+GPU.
+
+**Per-layer times.** `trtbench --engine-profile` attaches an `IProfiler` with
+`setEnqueueEmitsProfile(false)` and collects each inference's layer times
+with `reportToProfiler()` after it completes, over 200 inferences after
+warmup. Each layer gets its median over those runs. Every run must report
+the same layers in the same order, or the profile is rejected as
+inconsistent rather than averaged. The same process also times 200
+inferences *without* the profiler: profiling inserts events between layers,
+so the sum of layer times is larger than the real latency, and both numbers
+are printed. Shares are shares of the summed layer time. Clocks are sampled
+throughout; drift over 5% rejects the engine's attribution, as in the runner.
+
+**Fusion diff.** The engine inspector (JSON, `kDETAILED`) lists each engine
+layer with the ONNX nodes it came from (`[ONNX Layer: …]` metadata written by
+TensorRT's ONNX parser). Against the ONNX graph, `python/trtbench/attribution.py`
+counts:
+- ONNX compute nodes: every node except Constant, Q/DQ, and nodes that only
+  transform constants (weight dequantization, transposes of weights);
+- how many of them landed in a multi-node (fused) layer, how many got a layer
+  of their own, and how many appear in no layer (removed at build);
+- the fusion rate (nodes in fused layers ÷ nodes in any layer) and the
+  largest unfused op by time;
+- layers TensorRT inserted itself (reformats), which map to no ONNX node.
+
+A profiled name the inspector does not list is reported as "not in
+inspector" with its time, never matched by guesswork. A layer with no
+metadata is mapped by its name (split on " + ") only when the parts are ONNX
+node names.
+
+**Roofline per layer.** At the SM clock the profile ran at:
+- FLOPs: the Conv/Gemm/MatMul FLOPs of the layer's ONNX nodes.
+- Bytes: each input and output activation once, at the dimensions and data
+  type the inspector reports, plus the weights the layer's nodes read (1 byte
+  for weights behind QuantizeLinear, only the gathered rows for Gather). A
+  lower bound on what the layer must move.
+- Compute peak by the layer's input type: INT8 or FP16 tensor cores, or FP32
+  CUDA cores; DRAM peak is the measured copy.
+- Memory-bound if bytes ÷ DRAM peak ≥ FLOPs ÷ compute peak; marked "near
+  ridge" within 2× of the ridge point, where the lower-bound inputs make the
+  call uncertain.
+- A layer that finishes faster than its bytes allow at the DRAM peak is
+  "above DRAM roofline": its data came from L2, and the DRAM roofline makes
+  no claim about it.
+- Headroom = measured − max(bytes ÷ DRAM peak, FLOPs ÷ compute peak): the
+  most a perfect kernel *for the same fused layer* could save. Summed over an
+  engine, it bounds what better kernels alone could buy; it does not bound
+  what better fusion could buy.
+
+Tables are generated from the committed `attribution.json` by
+`python -m trtbench.attribution render`, never typed.
 
 ## The trap suite (`--self-test`)
 
@@ -471,6 +538,8 @@ CMake.
 ```bash
 ./build-gpu/trtbench --self-test --json results/<gpu>/self_test.json
 ./scripts/run_phase1.sh                       # clocks unlocked, drift-checked
+WORK=/path/to/work ./scripts/run_phase2.sh    # Phase 2, locked at 495 MHz
+WORK=/path/to/work ./scripts/run_phase3.sh    # Phase 3 on the same engines
 sudo -E ./scripts/run_phase1.sh --lock-clocks=1100   # locked where permitted
 python -m trtbench.diff results/A/phase1_latency.json results/B/phase1_latency.json
 ```
@@ -485,14 +554,17 @@ own p50-to-p90 spread, it labels the change as within run-to-run spread.
 ```
 include/trtbench/       core interfaces (pure C++17)
 include/trtbench/cuda/  Workload, DeviceContext, runner, NVML, clock lock
-src/core/               stats, clocks, roofline, audit, compare, JSON
+src/core/               stats, clocks, roofline, audit, compare, JSON,
+                        per-layer profile bookkeeping
 src/cuda/               event-timed runner, NVML via dlopen, calibration kernels
-src/trt/                TensorRT engine workload (timing, CUDA graph, evaluation)
+src/trt/                TensorRT engine workload (timing, CUDA graph,
+                        evaluation, IProfiler + inspector profiling)
 tools/                  trtbench CLI (CPU-only builds: --self-test only)
-scripts/                run_phase1.sh, run_phase2.sh, setup_tensorrt.sh,
+scripts/                run_phase1/2/3.sh, gpu_env.sh, setup_tensorrt.sh,
                         check_dce_sass.py, diagnose_int8.py
 python/trtbench/        reports and diff; Phase 2 models, data, ONNX stats,
-                        INT8 recipes, engine builds, PyTorch/ORT runner
+                        INT8 recipes, engine builds, PyTorch/ORT runner;
+                        Phase 3 attribution
 tests/cpp, tests/python unit tests; GPU tests skip without a device
 results/                committed raw JSON from real runs
 ```
@@ -554,6 +626,17 @@ results/                committed raw JSON from real runs
     with quantization-aware training or a better PTQ method.
   - Host-side numbers for PyTorch and ONNX Runtime include the Python
     interpreter. They are reported separately from device time.
+- **Phase 3 scope.**
+  - Attribution is per TensorRT layer, not per CUDA kernel. A fused layer's
+    time cannot be split among the ONNX nodes inside it.
+  - If TensorRT compiles a transformer into large opaque subgraphs, the
+    attribution is only as fine as what the profiler and inspector expose;
+    the tables report how much time could not be mapped to ONNX nodes.
+  - Layer bytes are a lower bound on what the layer moves, not measured DRAM
+    traffic; elementwise FLOPs are not counted. Near the ridge point, the
+    memory/compute call can flip; such layers are marked.
+  - The profiler perturbs what it measures. Shares are of the profiled sum,
+    which is reported next to the unprofiled latency.
 - Not tested: multi-GPU, MIG, MPS, distributed inference, or concurrent
   workloads sharing the GPU.
 

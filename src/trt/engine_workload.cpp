@@ -15,6 +15,8 @@
 
 #include "trtbench/cuda/check.hpp"
 #include "trtbench/json.hpp"
+#include "trtbench/layer_profile.hpp"
+#include "trtbench/stats.hpp"
 
 namespace trtbench::trt {
 
@@ -68,6 +70,25 @@ struct Tensor {
   std::size_t bytes = 0;
   void* device = nullptr;
   std::string data_file;  // input data, or FP32 reference output
+};
+
+// Forwards IProfiler callbacks into a LayerProfile. reportLayerTime is
+// noexcept, so a failure is remembered and raised after the run.
+class Collector final : public nvinfer1::IProfiler {
+ public:
+  explicit Collector(LayerProfile& p) : p_(p) {}
+  void reportLayerTime(char const* layer, float ms) noexcept override {
+    try {
+      p_.add(layer, ms);
+    } catch (...) {
+      failed_ = true;
+    }
+  }
+  bool failed() const { return failed_; }
+
+ private:
+  LayerProfile& p_;
+  bool failed_ = false;
 };
 
 template <typename T>
@@ -200,6 +221,76 @@ class EngineWorkload final : public cuda::Workload {
     return n;
   }
 
+  nlohmann::json profile(int warmup, int runs, ClockSource& clocks, cudaStream_t s) {
+    setup(s);
+    cudaEvent_t a = nullptr, b = nullptr;
+    TB_CUDA_CHECK(cudaEventCreate(&a));
+    TB_CUDA_CHECK(cudaEventCreate(&b));
+    auto timed = [&]() {
+      TB_CUDA_CHECK(cudaEventRecord(a, s));
+      enqueue(s);
+      TB_CUDA_CHECK(cudaEventRecord(b, s));
+      TB_CUDA_CHECK(cudaEventSynchronize(b));
+      float ms = 0;
+      TB_CUDA_CHECK(cudaEventElapsedTime(&ms, a, b));
+      return static_cast<double>(ms);
+    };
+
+    const ClockSnapshot pre = clocks.sample();
+    for (int i = 0; i < warmup; ++i) timed();
+    std::vector<ClockSnapshot> steady{clocks.sample()};
+    const int every = std::max(1, runs / 20);
+
+    std::vector<double> plain;
+    for (int i = 0; i < runs; ++i) {
+      plain.push_back(timed());
+      if ((i + 1) % every == 0) steady.push_back(clocks.sample());
+    }
+
+    // enqueueEmitsProfile(false) keeps enqueueV3 asynchronous; the layer
+    // times of each inference are collected after it completes.
+    LayerProfile prof;
+    Collector collector(prof);
+    context_->setProfiler(&collector);
+    context_->setEnqueueEmitsProfile(false);
+    std::vector<double> profiled;
+    std::string error;
+    for (int i = 0; i < runs && error.empty(); ++i) {
+      prof.begin_run();
+      profiled.push_back(timed());
+      if (!context_->reportToProfiler()) error = "reportToProfiler failed";
+      prof.end_run();
+      if (collector.failed()) error = "profiler callback failed";
+      if ((i + 1) % every == 0) steady.push_back(clocks.sample());
+    }
+    context_->setProfiler(nullptr);
+    steady.push_back(clocks.sample());
+    cudaEventDestroy(a);
+    cudaEventDestroy(b);
+    if (!error.empty()) throw std::runtime_error(name_ + ": " + error);
+
+    TrtPtr<nvinfer1::IEngineInspector> insp(engine_->createEngineInspector());
+    nlohmann::json info = nullptr;
+    if (insp) {
+      insp->setExecutionContext(context_.get());
+      const char* text = insp->getEngineInformation(nvinfer1::LayerInformationFormat::kJSON);
+      if (text) {
+        info = nlohmann::json::parse(text, nullptr, /*allow_exceptions=*/false);
+        if (info.is_discarded()) info = std::string(text);  // keep it, unparsed
+      }
+    }
+
+    const Percentiles pp = summarize(plain), pf = summarize(profiled);
+    return {{"name", name_},
+            {"meta", meta_},
+            {"warmup", warmup},
+            {"layer_profile", to_json(prof)},
+            {"end_to_end_ms",
+             {{"without_profiler", to_json(pp)}, {"with_profiler", to_json(pf)}}},
+            {"clocks", to_json(summarize_clocks(clocks.available(), clocks.name(), pre, steady))},
+            {"engine_information", info}};
+  }
+
  private:
   void load(cudaStream_t s) {
     const std::vector<char> blob = read_file(resolve(base_, meta_.at("engine").get<std::string>()));
@@ -209,6 +300,10 @@ class EngineWorkload final : public cuda::Workload {
     if (!engine_) throw std::runtime_error(name_ + ": deserializeCudaEngine failed");
     context_.reset(engine_->createExecutionContext());
     if (!context_) throw std::runtime_error(name_ + ": createExecutionContext failed");
+    // Engines are built with kDETAILED verbosity for Phase 3's inspector. Its
+    // NVTX markers add enqueue latency, so every context times with the
+    // default verbosity's markers (a no-op for engines built without it).
+    context_->setNvtxVerbosity(nvinfer1::ProfilingVerbosity::kLAYER_NAMES_ONLY);
 
     for (int i = 0; i < engine_->getNbIOTensors(); ++i) {
       Tensor t;
@@ -296,6 +391,22 @@ std::size_t evaluate_engine(const std::string& meta_path, const std::string& out
     const std::size_t n = w.evaluate(out_path, s);
     cudaStreamDestroy(s);
     return n;
+  } catch (...) {
+    cudaStreamDestroy(s);
+    throw;
+  }
+}
+
+nlohmann::json profile_engine(const std::string& meta_path, int warmup, int runs,
+                              ClockSource& clocks) {
+  if (runs < 1) throw std::runtime_error("profile_engine: runs must be >= 1");
+  cudaStream_t s = nullptr;
+  TB_CUDA_CHECK(cudaStreamCreateWithFlags(&s, cudaStreamNonBlocking));
+  try {
+    EngineWorkload w(meta_path, /*graph=*/false);
+    nlohmann::json j = w.profile(warmup, runs, clocks, s);
+    cudaStreamDestroy(s);
+    return j;
   } catch (...) {
     cudaStreamDestroy(s);
     throw;

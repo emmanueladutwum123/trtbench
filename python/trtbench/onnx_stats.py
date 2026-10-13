@@ -68,12 +68,12 @@ def _attr(node, name, default):
     return default
 
 
-def graph_stats(model) -> GraphStats:
+def static_shapes(model):
+    """(inferred graph, {tensor: static shape}) for every tensor with one."""
     import onnx
 
     # data_prop resolves Shape -> Reshape chains the exporters emit.
-    inferred = onnx.shape_inference.infer_shapes(model, data_prop=True)
-    g = inferred.graph
+    g = onnx.shape_inference.infer_shapes(model, data_prop=True).graph
     shapes: Dict[str, List[int]] = {}
     for vi in list(g.input) + list(g.output) + list(g.value_info):
         if vi.type.HasField("tensor_type") and vi.type.tensor_type.HasField("shape"):
@@ -83,6 +83,26 @@ def graph_stats(model) -> GraphStats:
                 pass
     for init in g.initializer:
         shapes[init.name] = list(init.dims)
+    return g, shapes
+
+
+def node_flops(node, sh) -> int:
+    """FLOPs of one Conv/Gemm/MatMul node (2 per MAC); 0 for every other op."""
+    if node.op_type == "Conv":
+        out = sh(node.output[0])  # N, Cout, H, W
+        w = sh(node.input[1])     # Cout, Cin/group, kh, kw
+        return 2 * int(np.prod(out)) * int(np.prod(w[1:]))
+    if node.op_type == "Gemm":
+        a = sh(node.input[0])
+        k = a[0] if _attr(node, "transA", 0) else a[1]
+        return 2 * int(np.prod(sh(node.output[0]))) * k
+    if node.op_type == "MatMul":
+        return 2 * int(np.prod(sh(node.output[0]))) * sh(node.input[0])[-1]
+    return 0
+
+
+def graph_stats(model) -> GraphStats:
+    g, shapes = static_shapes(model)
 
     def sh(name: str) -> List[int]:
         if name not in shapes:
@@ -92,19 +112,8 @@ def graph_stats(model) -> GraphStats:
     flops_by_op: Dict[str, int] = {}
     uncounted = set()
     for n in g.node:
-        f = 0
-        if n.op_type == "Conv":
-            out = sh(n.output[0])  # N, Cout, H, W
-            w = sh(n.input[1])     # Cout, Cin/group, kh, kw
-            f = 2 * int(np.prod(out)) * int(np.prod(w[1:]))
-        elif n.op_type == "Gemm":
-            a = sh(n.input[0])
-            k = a[0] if _attr(n, "transA", 0) else a[1]
-            f = 2 * int(np.prod(sh(n.output[0]))) * k
-        elif n.op_type == "MatMul":
-            a = sh(n.input[0])
-            f = 2 * int(np.prod(sh(n.output[0]))) * a[-1]
-        else:
+        f = node_flops(n, sh)
+        if n.op_type not in ("Conv", "Gemm", "MatMul"):
             uncounted.add(n.op_type)
         if f:
             flops_by_op[n.op_type] = flops_by_op.get(n.op_type, 0) + f

@@ -52,6 +52,14 @@ TensorRT (builds with -DTB_ENABLE_TENSORRT=ON):
   --engine-eval META  run the engine over its evaluation set and write the
                       outputs to --eval-out (accuracy support; untimed)
   --eval-out PATH
+  --engine-profile META
+                      per-layer attribution (Phase 3): IProfiler layer times,
+                      end-to-end time with and without the profiler, clocks
+                      and the engine inspector's layer JSON, written to
+                      --profile-out/<model>_b<B>_<precision>.profile.json;
+                      repeatable. Untimed by the runner; --warmup applies.
+  --profile-out DIR
+  --profile-runs N    profiled inferences per engine (default: 200)
 
 Baselines timed outside this binary:
   --ingest SAMPLES    audit samples written by python/trtbench/pyrunner.py
@@ -101,6 +109,9 @@ struct Args {
   std::vector<std::string> ingest;
   std::string engine_eval;
   std::string eval_out;
+  std::vector<std::string> profile;
+  std::string profile_out;
+  int profile_runs = 200;
 };
 
 [[noreturn]] void usage_error(const std::string& msg) {
@@ -144,6 +155,12 @@ Args parse(int argc, char** argv) {
       a.cuda_graph = true;
     } else if (f == "--engine-eval") {
       a.engine_eval = next();
+    } else if (f == "--engine-profile") {
+      a.profile.push_back(next());
+    } else if (f == "--profile-out") {
+      a.profile_out = next();
+    } else if (f == "--profile-runs") {
+      a.profile_runs = static_cast<int>(to_long(f, next()));
     } else if (f == "--eval-out") {
       a.eval_out = next();
     } else if (f == "--ingest") {
@@ -198,8 +215,10 @@ Args parse(int argc, char** argv) {
   if (a.op != "all" && a.op != "empty" && a.op != "copy" && a.op != "fma" && a.op != "none")
     usage_error("unknown op '" + a.op + "'");
   if (!a.engine_eval.empty() && a.eval_out.empty()) usage_error("--engine-eval needs --eval-out");
+  if (!a.profile.empty() && a.profile_out.empty()) usage_error("--engine-profile needs --profile-out");
+  if (a.profile_runs < 1) usage_error("--profile-runs must be >= 1");
 #ifndef TRTBENCH_HAVE_TENSORRT
-  if (!a.engines.empty() || !a.engine_eval.empty())
+  if (!a.engines.empty() || !a.engine_eval.empty() || !a.profile.empty())
     usage_error("this build has no TensorRT support (configure with -DTB_ENABLE_TENSORRT=ON)");
 #endif
   return a;
@@ -319,6 +338,38 @@ int main(int argc, char** argv) {
 #endif
     auto ctx = cuda::DeviceContext::create(a.ctx);
     if (a.ctx.lock_clocks) std::printf("Clock lock %s\n", ctx->lock_status().c_str());
+#ifdef TRTBENCH_HAVE_TENSORRT
+    if (!a.profile.empty()) {
+      for (const auto& m : a.profile) {
+        std::fprintf(stderr, "trtbench: profiling %s\n", m.c_str());
+        nlohmann::json j = trt::profile_engine(m, a.cfg.warmup_iters, a.profile_runs, ctx->clocks());
+        j["meta_path"] = m;
+        j["environment"] = to_json(ctx->env());
+        j["peaks"] = to_json(ctx->peaks());
+        j["clocks"]["locked"] = ctx->clocks_locked();
+        j["clocks"]["locked_mhz"] = ctx->locked_mhz();
+        j["clocks"]["lock_status"] = ctx->lock_status();
+        const auto& meta = j["meta"];
+        const std::string path = a.profile_out + "/" + meta["model"].get<std::string>() + "_b" +
+                                 std::to_string(meta["batch"].get<int>()) + "_" +
+                                 meta["precision_label"].get<std::string>() + ".profile.json";
+        std::ofstream out(path);
+        out << j.dump(1) << "\n";
+        if (!out) throw std::runtime_error("could not write " + path);
+        const auto& lp = j["layer_profile"];
+        std::printf("%-28s %4zu layers  sum of layers p50 %.3f ms  end-to-end p50 %.3f ms "
+                    "(%.3f ms with profiler)  SM %u-%u MHz%s\n",
+                    j["name"].get<std::string>().c_str(), lp["layers"].size(),
+                    lp["sum_of_layers_ms"]["p50"].get<double>(),
+                    j["end_to_end_ms"]["without_profiler"]["p50"].get<double>(),
+                    j["end_to_end_ms"]["with_profiler"]["p50"].get<double>(),
+                    j["clocks"]["sm_mhz"]["min"].get<unsigned>(),
+                    j["clocks"]["sm_mhz"]["max"].get<unsigned>(),
+                    lp["consistent"].get<bool>() ? "" : "  INCONSISTENT LAYER LIST");
+      }
+      return 0;
+    }
+#endif
 
     std::vector<std::unique_ptr<cuda::Workload>> ws;
     if (a.op == "empty" || a.op == "all") ws.push_back(cuda::make_empty_kernel());

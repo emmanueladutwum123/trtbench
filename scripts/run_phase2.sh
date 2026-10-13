@@ -20,35 +20,8 @@ MODE=${MODE:-latency}
 WORK=${WORK:-work}
 export PYTHONPATH=python
 
-echo "===== setup ====="
-# Fail here, with the reason, rather than several steps later. A Colab session
-# that has run out of GPU quota comes back as a CPU runtime: no nvidia-smi.
-nvidia-smi -L || { echo "run_phase2: no NVIDIA GPU visible (on Colab: Runtime > Change runtime type > T4 GPU)" >&2; exit 1; }
-[ -x /usr/local/cuda/bin/nvcc ] && export PATH="/usr/local/cuda/bin:$PATH"
-command -v nvcc >/dev/null || { echo "run_phase2: nvcc not found (CUDA toolkit missing)" >&2; exit 1; }
-python3 -m pip install -q -r requirements-phase2.txt
-# Assign first: set -e does not see a failure inside eval "$(...)".
-trt_env=$(scripts/setup_tensorrt.sh)
-eval "$trt_env"
-echo "TensorRT $TRT_VERSION (CUDA $TRT_CUDA_MAJOR): $TENSORRT_LIBRARY"
-python3 - <<'PY'
-import importlib
-for m in ("torch", "torchvision", "transformers", "onnx", "onnxruntime", "modelopt", "tensorrt"):
-    try:
-        print(f"  {m} {importlib.import_module(m).__version__}")
-    except Exception as e:
-        print(f"  {m} UNAVAILABLE: {e}")
-PY
-cmake -S . -B build-gpu -DCMAKE_BUILD_TYPE=Release -DTB_ENABLE_CUDA=ON -DTB_ENABLE_TENSORRT=ON \
-  -DCMAKE_CUDA_ARCHITECTURES=native \
-  -DTENSORRT_INCLUDE_DIR="$TENSORRT_INCLUDE_DIR" -DTENSORRT_LIBRARY="$TENSORRT_LIBRARY"
-cmake --build build-gpu -j
-
-gpu=$(nvidia-smi --query-gpu=name --format=csv,noheader -i 0 | head -1 | tr ' ' '_' | tr -cd '[:alnum:]_-')
-# One directory per lock setting: timings at different clocks never mix, and
-# a rerun at a new clock does not reuse samples from the old one.
-if [ "$LOCK_MHZ" != 0 ]; then tag="lock${LOCK_MHZ}"; else tag="unlocked"; fi
-out="results/${gpu}-$(date -u +%Y%m%d)/phase2-${tag}"
+source scripts/gpu_env.sh
+out="$run_dir/phase2-${tag}"
 mkdir -p "$out"
 
 echo "===== prepare (export, FP16, INT8, references) ====="
@@ -56,18 +29,7 @@ python3 -m trtbench.phase2 prepare "$WORK"
 echo "===== engines ====="
 python3 -m trtbench.phase2 engines "$WORK"
 
-# One clock lock for every timing process, so PyTorch, ONNX Runtime and
-# TensorRT are measured under the same clock policy.
-lockflag=""
-if [ "$LOCK_MHZ" != 0 ]; then
-  if nvidia-smi -lgc "$LOCK_MHZ,$LOCK_MHZ"; then
-    trap 'nvidia-smi -rgc >/dev/null' EXIT
-    export TRTBENCH_EXTERNAL_LOCK_MHZ=$LOCK_MHZ
-    lockflag="--clocks-locked-externally=$LOCK_MHZ"
-  else
-    echo "clock lock not permitted; timing unlocked (drift is still audited)"
-  fi
-fi
+lock_clocks
 
 echo "===== baselines (PyTorch eager, ONNX Runtime) ====="
 python3 -m trtbench.phase2 baselines "$WORK" "$out" --mode "$MODE"
