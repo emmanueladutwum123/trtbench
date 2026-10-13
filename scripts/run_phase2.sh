@@ -21,8 +21,15 @@ WORK=${WORK:-work}
 export PYTHONPATH=python
 
 echo "===== setup ====="
+# Fail here, with the reason, rather than several steps later. A Colab session
+# that has run out of GPU quota comes back as a CPU runtime: no nvidia-smi.
+nvidia-smi -L || { echo "run_phase2: no NVIDIA GPU visible (on Colab: Runtime > Change runtime type > T4 GPU)" >&2; exit 1; }
+[ -x /usr/local/cuda/bin/nvcc ] && export PATH="/usr/local/cuda/bin:$PATH"
+command -v nvcc >/dev/null || { echo "run_phase2: nvcc not found (CUDA toolkit missing)" >&2; exit 1; }
 python3 -m pip install -q -r requirements-phase2.txt
-eval "$(scripts/setup_tensorrt.sh)"
+# Assign first: set -e does not see a failure inside eval "$(...)".
+trt_env=$(scripts/setup_tensorrt.sh)
+eval "$trt_env"
 echo "TensorRT $TRT_VERSION (CUDA $TRT_CUDA_MAJOR): $TENSORRT_LIBRARY"
 python3 - <<'PY'
 import importlib
