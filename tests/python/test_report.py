@@ -86,3 +86,22 @@ def test_phase2_rejected_rows_have_no_numbers():
     t = phase2_tables(rep, {})
     row = [l for l in t.splitlines() if l.startswith("| tensorrt")][0]
     assert "**rejected**: clock_drift" in row and "1.500" not in row
+
+
+
+def test_phase2_cli_runs_as_module(tmp_path: Path):
+    # main() must run after every function it calls is defined: a guard placed
+    # mid-file passed the import-based tests and failed only under `python -m`.
+    import subprocess
+    import sys
+
+    rep = _report(_p2("torch_eager", "fp32", 6.0), _p2("tensorrt", "fp32", 3.0))
+    rep["environment"] = ENV
+    (tmp_path / "rep.json").write_text(json.dumps(rep))
+    (tmp_path / "acc.json").write_text("{}")
+    r = subprocess.run([sys.executable, "-m", "trtbench.report", "--phase2",
+                        str(tmp_path / "rep.json"), str(tmp_path / "acc.json")],
+                       cwd=Path(__file__).resolve().parents[2] / "python",
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    assert "#### resnet50, batch 1" in r.stdout and "2.00×" in r.stdout

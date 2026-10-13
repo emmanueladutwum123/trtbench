@@ -122,9 +122,6 @@ def main(argv: Optional[List[str]] = None) -> int:
     return 0
 
 
-if __name__ == "__main__":
-    sys.exit(main())
-
 
 # --------------------------------------------------------------------------- phase 2
 
@@ -225,3 +222,7 @@ def phase2_tables(report: Dict[str, Any], acc: Dict[str, Any]) -> str:
                    f"| {100 * (b - a) / a:+.1f}% | {r['host_enqueue_ms']['p50'] * 1e3:.1f} "
                    f"| {g['host_enqueue_ms']['p50'] * 1e3:.1f} |")
     return "\n".join(out)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
