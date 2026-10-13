@@ -1,0 +1,32 @@
+{
+  "model": "gpt2",
+  "batch": 4,
+  "precision": "fp32",
+  "precision_label": "fp32",
+  "engine": "fp32.plan",
+  "onnx": "fp32.onnx",
+  "flops": 128912719872,
+  "bytes_lower_bound": 598199512,
+  "inputs": {
+    "input_ids": "input_input_ids.bin"
+  },
+  "reference_outputs": {
+    "logits": "ref_logits.bin"
+  },
+  "eval_inputs": {
+    "input_ids": "../eval_input_ids.bin"
+  },
+  "eval_count": 32,
+  "export": {
+    "exporter": "dynamo",
+    "torch": "2.11.0+cu130",
+    "opset": "19",
+    "constant_folded": "onnx-graphsurgeon"
+  },
+  "variant": {
+    "how": "exported graph, constant-folded"
+  },
+  "trt_version": "11.4.0.106",
+  "build_seconds": 20.0,
+  "layers_in_network": 862
+}

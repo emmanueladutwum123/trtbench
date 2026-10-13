@@ -1,0 +1,499 @@
+GPU        Tesla T4 (sm_75, 40 SMs, PCI 0000:00:04.0)
+Driver     580.82.07   CUDA driver API 13000   runtime 13000
+NVML       ok
+Peaks      DRAM 320.1 GB/s theoretical, 235.1 GB/s measured copy; FP32 8.1 TFLOPS; FP16 TC 65.1 TFLOPS @ 1590 MHz
+Floors     empty kernel 4.38 us (latency), 2.86 us/launch (throughput)
+git        66c02603c051
+
+== calibration/empty_kernel_latency  [latency, fp32, 1 launch/sample, n=1000]  TRUSTWORTHY
+   device us   p50 4.38  p90 6.14  p99 20.48  (first call 249.86, excluded)
+   host   us   enqueue p50 2.76  p99 14.06
+   roofline    0.0 GB/s (0.0% of measured, 0.0% of theoretical)  0.0 GFLOP/s (0.0% of peak @ run clock)  AI 0.000  ridge 16.1  -> unknown-bound
+   clocks      SM 1005-1005 MHz (drift 0.0%)  mem 5000-5000 MHz  reasons: none  [locked]
+   output      empty kernel has no output by design
+   [warning] output_unverified: workload has no reference output; elimination of work is only caught if it produces an impossible rate
+   [info] first_call_outlier: first call took 0.2499 ms on device (57.0x the steady-state p50 of 0.0044 ms); excluded from percentiles
+   [warning] high_variance: p90/p50 = 1.40 (threshold 1.25)
+
+== calibration/empty_kernel_throughput  [throughput, fp32, 100 launch/sample, n=406]  TRUSTWORTHY
+   device us   p50 2.86  p90 3.42  p99 4.25  (first call 20.38, excluded)
+   host   us   enqueue p50 2.84  p99 4.22
+   roofline    0.0 GB/s (0.0% of measured, 0.0% of theoretical)  0.0 GFLOP/s (0.0% of peak @ run clock)  AI 0.000  ridge 16.1  -> unknown-bound
+   clocks      SM 1005-1005 MHz (drift 0.0%)  mem 5000-5000 MHz  reasons: none  [locked]
+   output      empty kernel has no output by design
+   [warning] output_unverified: workload has no reference output; elimination of work is only caught if it produces an impossible rate
+   [info] first_call_outlier: first call took 0.0204 ms on device (7.1x the steady-state p50 of 0.0029 ms); excluded from percentiles
+
+== calibration/copy_256MiB  [throughput, fp32, 10 launch/sample, n=100]  TRUSTWORTHY
+   device us   p50 2283.74  p90 2286.28  p99 2287.62  (first call 2327.07, excluded)
+   host   us   enqueue p50 4.60  p99 6.08
+   roofline    235.1 GB/s (73.4% of measured, 73.4% of theoretical)  0.0 GFLOP/s (0.0% of peak @ run clock)  AI 0.000  ridge 16.1  -> memory-bound
+   clocks      SM 1005-1005 MHz (drift 0.0%)  mem 5000-5000 MHz  reasons: none  [locked]
+   output      exact match at 4097 sampled positions
+
+== tensorrt/bert_base_b1/fp16  [latency, fp16, 1 launch/sample, n=348]  TRUSTWORTHY
+   device us   p50 2476.03  p90 2541.47  p99 2614.66  (first call 36225.63, excluded)
+   host   us   enqueue p50 334.52  p99 534.58
+   roofline    73.0 GB/s (31.1% of measured, 22.8% of theoretical)  9025.4 GFLOP/s (22.6% of peak @ run clock)  AI 123.641  ridge 169.9  -> memory-bound
+   clocks      SM 945-990 MHz (drift 4.5%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      hidden: cosine 0.999997 vs FP32 reference, max |diff| 0.0162; (sanity check, not an accuracy measurement)
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 975 MHz); compare only against runs at the same power limit
+   [info] first_call_outlier: first call took 36.2256 ms on device (14.6x the steady-state p50 of 2.4760 ms); excluded from percentiles
+
+== tensorrt/bert_base_b1/fp16+graph  [latency, fp16, 1 launch/sample, n=350]  REJECTED
+   device us   p50 2457.38  p90 2525.02  p99 2590.72  (first call 2481.31, excluded)
+   host   us   enqueue p50 46.69  p99 91.49
+   roofline    73.6 GB/s (31.3% of measured, 23.0% of theoretical)  9093.9 GFLOP/s (22.8% of peak @ run clock)  AI 123.641  ridge 169.9  -> memory-bound
+   clocks      SM 945-1005 MHz (drift 6.0%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      hidden: cosine 0.999997 vs FP32 reference, max |diff| 0.0162; (sanity check, not an accuracy measurement)
+   [invalid] clock_drift: clocks moved during steady state: SM 945-1005 MHz (6.0%), memory 5000-5000 MHz (0.0%); tolerance 5.0%
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 975 MHz); compare only against runs at the same power limit
+
+== tensorrt/bert_base_b1/fp32  [latency, fp32, 1 launch/sample, n=200]  TRUSTWORTHY
+   device us   p50 9377.79  p90 9656.16  p99 9718.08  (first call 12660.93, excluded)
+   host   us   enqueue p50 722.94  p99 1335.97
+   roofline    36.4 GB/s (15.5% of measured, 11.4% of theoretical)  2383.0 GFLOP/s (57.5% of peak @ run clock)  AI 65.381  ridge 17.6  -> compute-bound
+   clocks      SM 795-825 MHz (drift 3.6%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      hidden: cosine 1.000000 vs FP32 reference, max |diff| 4.77e-06; (sanity check, not an accuracy measurement)
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 810 MHz); compare only against runs at the same power limit
+
+== tensorrt/bert_base_b1/fp32+graph  [latency, fp32, 1 launch/sample, n=200]  REJECTED
+   device us   p50 9385.09  p90 9710.82  p99 9978.24  (first call 7911.26, excluded)
+   host   us   enqueue p50 133.28  p99 198.72
+   roofline    36.4 GB/s (15.5% of measured, 11.4% of theoretical)  2381.1 GFLOP/s (58.5% of peak @ run clock)  AI 65.381  ridge 17.3  -> compute-bound
+   clocks      SM 765-825 MHz (drift 7.3%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      hidden: cosine 1.000000 vs FP32 reference, max |diff| 4.77e-06; (sanity check, not an accuracy measurement)
+   [invalid] clock_drift: clocks moved during steady state: SM 765-825 MHz (7.3%), memory 5000-5000 MHz (0.0%); tolerance 5.0%
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 795 MHz); compare only against runs at the same power limit
+
+== tensorrt/bert_base_b1/int8  [latency, int8, 1 launch/sample, n=357]  REJECTED
+   device us   p50 1806.34  p90 1826.85  p99 1848.35  (first call 5076.99, excluded)
+   host   us   enqueue p50 308.65  p99 575.23
+   roofline    48.0 GB/s (20.4% of measured, 15.0% of theoretical)  12371.6 GFLOP/s (15.0% of peak @ run clock)  AI 257.862  ridge 350.2  -> memory-bound
+   clocks      SM 1005-1005 MHz (drift 0.0%)  mem 5000-5000 MHz  reasons: none  [locked]
+   output      hidden: cosine 0.700288 vs FP32 reference, max |diff| 7.48; (sanity check, not an accuracy measurement)
+   [invalid] checksum_failed: output did not match reference: hidden: cosine 0.700288 vs FP32 reference, max |diff| 7.48; (sanity check, not an accuracy measurement)
+   [info] first_call_outlier: first call took 5.0770 ms on device (2.8x the steady-state p50 of 1.8063 ms); excluded from percentiles
+
+== tensorrt/bert_base_b1/int8+graph  [latency, int8, 1 launch/sample, n=354]  REJECTED
+   device us   p50 1805.09  p90 1810.43  p99 1818.72  (first call 1824.77, excluded)
+   host   us   enqueue p50 38.46  p99 61.57
+   roofline    48.0 GB/s (20.4% of measured, 15.0% of theoretical)  12380.1 GFLOP/s (15.0% of peak @ run clock)  AI 257.862  ridge 350.2  -> memory-bound
+   clocks      SM 1005-1005 MHz (drift 0.0%)  mem 5000-5000 MHz  reasons: none  [locked]
+   output      hidden: cosine 0.700288 vs FP32 reference, max |diff| 7.48; (sanity check, not an accuracy measurement)
+   [invalid] checksum_failed: output did not match reference: hidden: cosine 0.700288 vs FP32 reference, max |diff| 7.48; (sanity check, not an accuracy measurement)
+
+== tensorrt/bert_base_b8/fp16  [latency, fp16, 1 launch/sample, n=200]  TRUSTWORTHY
+   device us   p50 14637.57  p90 14941.15  p99 15241.44  (first call 12422.75, excluded)
+   host   us   enqueue p50 513.38  p99 850.81
+   roofline    12.8 GB/s (5.5% of measured, 4.0% of theoretical)  12213.6 GFLOP/s (44.2% of peak @ run clock)  AI 952.779  ridge 117.6  -> compute-bound
+   clocks      SM 660-675 MHz (drift 2.2%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      hidden: cosine 0.999995 vs FP32 reference, max |diff| 0.302; (sanity check, not an accuracy measurement)
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 675 MHz); compare only against runs at the same power limit
+
+== tensorrt/bert_base_b8/fp16+graph  [latency, fp16, 1 launch/sample, n=200]  TRUSTWORTHY
+   device us   p50 14859.62  p90 15173.98  p99 15188.77  (first call 10450.91, excluded)
+   host   us   enqueue p50 58.38  p99 94.64
+   roofline    12.6 GB/s (5.4% of measured, 3.9% of theoretical)  12031.1 GFLOP/s (44.5% of peak @ run clock)  AI 952.779  ridge 115.0  -> compute-bound
+   clocks      SM 645-660 MHz (drift 2.3%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      hidden: cosine 0.999995 vs FP32 reference, max |diff| 0.302; (sanity check, not an accuracy measurement)
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 660 MHz); compare only against runs at the same power limit
+
+== tensorrt/bert_base_b8/fp32  [latency, fp32, 1 launch/sample, n=200]  REJECTED
+   device us   p50 57787.49  p90 58638.34  p99 59641.28  (first call 49002.49, excluded)
+   host   us   enqueue p50 689.56  p99 1173.51
+   roofline    6.1 GB/s (2.6% of measured, 1.9% of theoretical)  3093.7 GFLOP/s (80.6% of peak @ run clock)  AI 510.687  ridge 16.3  -> compute-bound
+   clocks      SM 735-825 MHz (drift 10.9%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      hidden: cosine 1.000000 vs FP32 reference, max |diff| 9.08e-05; (sanity check, not an accuracy measurement)
+   [invalid] clock_drift: clocks moved during steady state: SM 735-825 MHz (10.9%), memory 5000-5000 MHz (0.0%); tolerance 5.0%
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 750 MHz); compare only against runs at the same power limit
+
+== tensorrt/bert_base_b8/fp32+graph  [latency, fp32, 1 launch/sample, n=200]  TRUSTWORTHY
+   device us   p50 56663.87  p90 57346.11  p99 57360.51  (first call 50659.61, excluded)
+   host   us   enqueue p50 121.31  p99 220.87
+   roofline    6.2 GB/s (2.6% of measured, 1.9% of theoretical)  3155.1 GFLOP/s (82.2% of peak @ run clock)  AI 510.687  ridge 16.3  -> compute-bound
+   clocks      SM 750-765 MHz (drift 2.0%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      hidden: cosine 1.000000 vs FP32 reference, max |diff| 9.08e-05; (sanity check, not an accuracy measurement)
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 750 MHz); compare only against runs at the same power limit
+
+== tensorrt/bert_base_b8/int8  [latency, int8, 1 launch/sample, n=200]  REJECTED
+   device us   p50 6746.46  p90 6825.95  p99 6864.42  (first call 11385.02, excluded)
+   host   us   enqueue p50 517.15  p99 885.74
+   roofline    13.7 GB/s (5.8% of measured, 4.3% of theoretical)  26499.5 GFLOP/s (32.2% of peak @ run clock)  AI 1939.382  ridge 350.2  -> compute-bound
+   clocks      SM 990-1005 MHz (drift 1.5%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      hidden: cosine 0.669447 vs FP32 reference, max |diff| 9.49; (sanity check, not an accuracy measurement)
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 1005 MHz); compare only against runs at the same power limit
+   [invalid] checksum_failed: output did not match reference: hidden: cosine 0.669447 vs FP32 reference, max |diff| 9.49; (sanity check, not an accuracy measurement)
+
+== tensorrt/bert_base_b8/int8+graph  [latency, int8, 1 launch/sample, n=200]  REJECTED
+   device us   p50 6741.54  p90 6801.41  p99 6817.79  (first call 6625.28, excluded)
+   host   us   enqueue p50 47.49  p99 85.93
+   roofline    13.7 GB/s (5.8% of measured, 4.3% of theoretical)  26518.9 GFLOP/s (32.2% of peak @ run clock)  AI 1939.382  ridge 350.2  -> compute-bound
+   clocks      SM 990-1005 MHz (drift 1.5%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      hidden: cosine 0.669447 vs FP32 reference, max |diff| 9.49; (sanity check, not an accuracy measurement)
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 1005 MHz); compare only against runs at the same power limit
+   [invalid] checksum_failed: output did not match reference: hidden: cosine 0.669447 vs FP32 reference, max |diff| 9.49; (sanity check, not an accuracy measurement)
+
+== tensorrt/gpt2_b1/fp16  [latency, fp16, 1 launch/sample, n=290]  TRUSTWORTHY
+   device us   p50 3079.65  p90 3139.58  p99 3169.66  (first call 6071.42, excluded)
+   host   us   enqueue p50 385.09  p99 768.91
+   roofline    91.0 GB/s (38.7% of measured, 28.4% of theoretical)  10464.9 GFLOP/s (26.2% of peak @ run clock)  AI 114.945  ridge 169.9  -> memory-bound
+   clocks      SM 960-990 MHz (drift 3.0%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      logits: cosine 0.999997 vs FP32 reference, max |diff| 2.41; (sanity check, not an accuracy measurement)
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 975 MHz); compare only against runs at the same power limit
+
+== tensorrt/gpt2_b1/fp16+graph  [latency, fp16, 1 launch/sample, n=292]  TRUSTWORTHY
+   device us   p50 3046.30  p90 3106.82  p99 3121.15  (first call 3052.93, excluded)
+   host   us   enqueue p50 63.73  p99 142.11
+   roofline    92.0 GB/s (39.2% of measured, 28.8% of theoretical)  10579.4 GFLOP/s (26.5% of peak @ run clock)  AI 114.945  ridge 169.9  -> memory-bound
+   clocks      SM 975-990 MHz (drift 1.5%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      logits: cosine 0.999997 vs FP32 reference, max |diff| 2.41; (sanity check, not an accuracy measurement)
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 975 MHz); compare only against runs at the same power limit
+
+== tensorrt/gpt2_b1/fp32  [latency, fp32, 1 launch/sample, n=200]  REJECTED
+   device us   p50 12506.24  p90 13160.96  p99 13437.47  (first call 14702.50, excluded)
+   host   us   enqueue p50 653.97  p99 971.42
+   roofline    41.6 GB/s (17.7% of measured, 13.0% of theoretical)  2577.0 GFLOP/s (63.3% of peak @ run clock)  AI 61.881  ridge 17.3  -> compute-bound
+   clocks      SM 765-900 MHz (drift 15.0%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      logits: cosine 1.000000 vs FP32 reference, max |diff| 0.000305; (sanity check, not an accuracy measurement)
+   [invalid] clock_drift: clocks moved during steady state: SM 765-900 MHz (15.0%), memory 5000-5000 MHz (0.0%); tolerance 5.0%
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 795 MHz); compare only against runs at the same power limit
+
+== tensorrt/gpt2_b1/fp32+graph  [latency, fp32, 1 launch/sample, n=200]  REJECTED
+   device us   p50 12649.50  p90 13259.26  p99 13575.94  (first call 10237.95, excluded)
+   host   us   enqueue p50 138.26  p99 213.54
+   roofline    41.2 GB/s (17.5% of measured, 12.9% of theoretical)  2547.8 GFLOP/s (63.8% of peak @ run clock)  AI 61.881  ridge 17.0  -> compute-bound
+   clocks      SM 720-825 MHz (drift 12.7%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      logits: cosine 1.000000 vs FP32 reference, max |diff| 0.000305; (sanity check, not an accuracy measurement)
+   [invalid] clock_drift: clocks moved during steady state: SM 720-825 MHz (12.7%), memory 5000-5000 MHz (0.0%); tolerance 5.0%
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 780 MHz); compare only against runs at the same power limit
+
+== tensorrt/gpt2_b1/int8  [latency, int8, 1 launch/sample, n=266]  REJECTED
+   device us   p50 2540.86  p90 2560.48  p99 3953.38  (first call 8095.74, excluded)
+   host   us   enqueue p50 548.70  p99 2613.53
+   roofline    74.5 GB/s (31.7% of measured, 23.3% of theoretical)  12683.9 GFLOP/s (15.4% of peak @ run clock)  AI 170.166  ridge 350.2  -> memory-bound
+   clocks      SM 1005-1005 MHz (drift 0.0%)  mem 5000-5000 MHz  reasons: none  [locked]
+   output      logits: cosine 0.846591 vs FP32 reference, max |diff| 233; (sanity check, not an accuracy measurement)
+   [invalid] checksum_failed: output did not match reference: logits: cosine 0.846591 vs FP32 reference, max |diff| 233; (sanity check, not an accuracy measurement)
+   [info] first_call_outlier: first call took 8.0957 ms on device (3.2x the steady-state p50 of 2.5409 ms); excluded from percentiles
+
+== tensorrt/gpt2_b1/int8+graph  [latency, int8, 1 launch/sample, n=291]  REJECTED
+   device us   p50 2524.54  p90 2529.34  p99 2543.46  (first call 2549.44, excluded)
+   host   us   enqueue p50 45.64  p99 86.08
+   roofline    75.0 GB/s (31.9% of measured, 23.4% of theoretical)  12765.9 GFLOP/s (15.5% of peak @ run clock)  AI 170.166  ridge 350.2  -> memory-bound
+   clocks      SM 1005-1005 MHz (drift 0.0%)  mem 5000-5000 MHz  reasons: none  [locked]
+   output      logits: cosine 0.846591 vs FP32 reference, max |diff| 233; (sanity check, not an accuracy measurement)
+   [invalid] checksum_failed: output did not match reference: logits: cosine 0.846591 vs FP32 reference, max |diff| 233; (sanity check, not an accuracy measurement)
+
+== tensorrt/gpt2_b4/fp16  [latency, fp16, 1 launch/sample, n=200]  TRUSTWORTHY
+   device us   p50 10254.37  p90 10538.91  p99 10787.39  (first call 10743.81, excluded)
+   host   us   enqueue p50 388.96  p99 812.13
+   roofline    35.2 GB/s (15.0% of measured, 11.0% of theoretical)  12571.5 GFLOP/s (42.6% of peak @ run clock)  AI 356.985  ridge 125.4  -> compute-bound
+   clocks      SM 705-735 MHz (drift 4.1%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      logits: cosine 0.999998 vs FP32 reference, max |diff| 2; (sanity check, not an accuracy measurement)
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 720 MHz); compare only against runs at the same power limit
+
+== tensorrt/gpt2_b4/fp16+graph  [latency, fp16, 1 launch/sample, n=200]  TRUSTWORTHY
+   device us   p50 10367.46  p90 10733.57  p99 10927.42  (first call 8035.58, excluded)
+   host   us   enqueue p50 84.17  p99 114.12
+   roofline    34.8 GB/s (14.8% of measured, 10.9% of theoretical)  12434.4 GFLOP/s (44.0% of peak @ run clock)  AI 356.985  ridge 120.2  -> compute-bound
+   clocks      SM 675-705 MHz (drift 4.3%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      logits: cosine 0.999998 vs FP32 reference, max |diff| 2; (sanity check, not an accuracy measurement)
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 690 MHz); compare only against runs at the same power limit
+
+== tensorrt/gpt2_b4/fp32  [latency, fp32, 1 launch/sample, n=200]  REJECTED
+   device us   p50 43415.58  p90 44464.51  p99 45133.50  (first call 36315.30, excluded)
+   host   us   enqueue p50 643.94  p99 1131.15
+   roofline    13.8 GB/s (5.9% of measured, 4.3% of theoretical)  2969.3 GFLOP/s (80.5% of peak @ run clock)  AI 215.501  ridge 15.7  -> compute-bound
+   clocks      SM 690-870 MHz (drift 20.7%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      logits: cosine 1.000000 vs FP32 reference, max |diff| 0.000702; (sanity check, not an accuracy measurement)
+   [invalid] clock_drift: clocks moved during steady state: SM 690-870 MHz (20.7%), memory 5000-5000 MHz (0.0%); tolerance 5.0%
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 720 MHz); compare only against runs at the same power limit
+
+== tensorrt/gpt2_b4/fp32+graph  [latency, fp32, 1 launch/sample, n=200]  REJECTED
+   device us   p50 44519.55  p90 45211.17  p99 45895.97  (first call 32829.54, excluded)
+   host   us   enqueue p50 136.67  p99 193.84
+   roofline    13.4 GB/s (5.7% of measured, 4.2% of theoretical)  2895.6 GFLOP/s (82.0% of peak @ run clock)  AI 215.501  ridge 15.0  -> compute-bound
+   clocks      SM 675-720 MHz (drift 6.2%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      logits: cosine 1.000000 vs FP32 reference, max |diff| 0.000702; (sanity check, not an accuracy measurement)
+   [invalid] clock_drift: clocks moved during steady state: SM 675-720 MHz (6.2%), memory 5000-5000 MHz (0.0%); tolerance 5.0%
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 690 MHz); compare only against runs at the same power limit
+
+== tensorrt/gpt2_b4/int8  [latency, int8, 1 launch/sample, n=200]  REJECTED
+   device us   p50 5969.73  p90 6030.69  p99 6059.23  (first call 8933.79, excluded)
+   host   us   enqueue p50 405.30  p99 628.26
+   roofline    45.0 GB/s (19.1% of measured, 14.0% of theoretical)  21594.4 GFLOP/s (27.9% of peak @ run clock)  AI 480.372  ridge 329.3  -> compute-bound
+   clocks      SM 930-1005 MHz (drift 7.5%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      logits: cosine 0.870343 vs FP32 reference, max |diff| 280; (sanity check, not an accuracy measurement)
+   [invalid] clock_drift: clocks moved during steady state: SM 930-1005 MHz (7.5%), memory 5000-5000 MHz (0.0%); tolerance 5.0%
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 945 MHz); compare only against runs at the same power limit
+   [invalid] checksum_failed: output did not match reference: logits: cosine 0.870343 vs FP32 reference, max |diff| 280; (sanity check, not an accuracy measurement)
+
+== tensorrt/gpt2_b4/int8+graph  [latency, int8, 1 launch/sample, n=200]  REJECTED
+   device us   p50 5858.18  p90 5974.08  p99 6019.04  (first call 5724.51, excluded)
+   host   us   enqueue p50 70.02  p99 107.92
+   roofline    45.8 GB/s (19.5% of measured, 14.3% of theoretical)  22005.6 GFLOP/s (28.4% of peak @ run clock)  AI 480.372  ridge 329.3  -> compute-bound
+   clocks      SM 945-1005 MHz (drift 6.0%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      logits: cosine 0.870343 vs FP32 reference, max |diff| 280; (sanity check, not an accuracy measurement)
+   [invalid] clock_drift: clocks moved during steady state: SM 945-1005 MHz (6.0%), memory 5000-5000 MHz (0.0%); tolerance 5.0%
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 945 MHz); compare only against runs at the same power limit
+   [invalid] checksum_failed: output did not match reference: logits: cosine 0.870343 vs FP32 reference, max |diff| 280; (sanity check, not an accuracy measurement)
+
+== tensorrt/resnet50_b16/fp16  [latency, fp16, 1 launch/sample, n=200]  REJECTED
+   device us   p50 8877.98  p90 9109.66  p99 9164.86  (first call 40411.97, excluded)
+   host   us   enqueue p50 325.86  p99 531.80
+   roofline    6.8 GB/s (2.9% of measured, 2.1% of theoretical)  14739.1 GFLOP/s (42.8% of peak @ run clock)  AI 2153.664  ridge 146.4  -> compute-bound
+   clocks      SM 825-870 MHz (drift 5.2%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      logits: cosine 0.999986 vs FP32 reference, max |diff| 0.017; (sanity check, not an accuracy measurement)
+   [invalid] clock_drift: clocks moved during steady state: SM 825-870 MHz (5.2%), memory 5000-5000 MHz (0.0%); tolerance 5.0%
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 840 MHz); compare only against runs at the same power limit
+   [info] first_call_outlier: first call took 40.4120 ms on device (4.6x the steady-state p50 of 8.8780 ms); excluded from percentiles
+
+== tensorrt/resnet50_b16/fp16+graph  [latency, fp16, 1 launch/sample, n=200]  TRUSTWORTHY
+   device us   p50 8884.58  p90 9058.30  p99 9193.50  (first call 7914.59, excluded)
+   host   us   enqueue p50 30.63  p99 57.51
+   roofline    6.8 GB/s (2.9% of measured, 2.1% of theoretical)  14728.2 GFLOP/s (42.8% of peak @ run clock)  AI 2153.664  ridge 146.4  -> compute-bound
+   clocks      SM 825-855 MHz (drift 3.5%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      logits: cosine 0.999986 vs FP32 reference, max |diff| 0.017; (sanity check, not an accuracy measurement)
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 840 MHz); compare only against runs at the same power limit
+
+== tensorrt/resnet50_b16/fp32  [latency, fp32, 1 launch/sample, n=200]  REJECTED
+   device us   p50 41060.64  p90 41894.50  p99 42287.30  (first call 31259.04, excluded)
+   host   us   enqueue p50 406.38  p99 607.33
+   roofline    2.7 GB/s (1.2% of measured, 0.9% of theoretical)  3186.8 GFLOP/s (86.4% of peak @ run clock)  AI 1170.222  ridge 15.7  -> compute-bound
+   clocks      SM 690-885 MHz (drift 22.0%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      logits: cosine 1.000000 vs FP32 reference, max |diff| 1.14e-05; (sanity check, not an accuracy measurement)
+   [invalid] clock_drift: clocks moved during steady state: SM 690-885 MHz (22.0%), memory 5000-5000 MHz (0.0%); tolerance 5.0%
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 720 MHz); compare only against runs at the same power limit
+
+== tensorrt/resnet50_b16/fp32+graph  [latency, fp32, 1 launch/sample, n=200]  REJECTED
+   device us   p50 41423.10  p90 42243.58  p99 42640.80  (first call 31756.38, excluded)
+   host   us   enqueue p50 43.89  p99 66.62
+   roofline    2.7 GB/s (1.1% of measured, 0.8% of theoretical)  3159.0 GFLOP/s (85.7% of peak @ run clock)  AI 1170.222  ridge 15.7  -> compute-bound
+   clocks      SM 705-840 MHz (drift 16.1%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      logits: cosine 1.000000 vs FP32 reference, max |diff| 1.14e-05; (sanity check, not an accuracy measurement)
+   [invalid] clock_drift: clocks moved during steady state: SM 705-840 MHz (16.1%), memory 5000-5000 MHz (0.0%); tolerance 5.0%
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 720 MHz); compare only against runs at the same power limit
+
+== tensorrt/resnet50_b16/int8  [latency, int8, 1 launch/sample, n=202]  REJECTED
+   device us   p50 4702.30  p90 4743.30  p99 4765.95  (first call 10362.94, excluded)
+   host   us   enqueue p50 319.41  p99 519.69
+   roofline    7.5 GB/s (3.2% of measured, 2.4% of theoretical)  27827.6 GFLOP/s (35.9% of peak @ run clock)  AI 3694.192  ridge 329.3  -> compute-bound
+   clocks      SM 930-1005 MHz (drift 7.5%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      logits: cosine 0.971323 vs FP32 reference, max |diff| 1.12; (sanity check, not an accuracy measurement)
+   [invalid] clock_drift: clocks moved during steady state: SM 930-1005 MHz (7.5%), memory 5000-5000 MHz (0.0%); tolerance 5.0%
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 945 MHz); compare only against runs at the same power limit
+   [invalid] checksum_failed: output did not match reference: logits: cosine 0.971323 vs FP32 reference, max |diff| 1.12; (sanity check, not an accuracy measurement)
+   [info] first_call_outlier: first call took 10.3629 ms on device (2.2x the steady-state p50 of 4.7023 ms); excluded from percentiles
+
+== tensorrt/resnet50_b16/int8+graph  [latency, int8, 1 launch/sample, n=203]  REJECTED
+   device us   p50 4661.79  p90 4702.21  p99 4746.18  (first call 4428.06, excluded)
+   host   us   enqueue p50 29.32  p99 53.09
+   roofline    7.6 GB/s (3.2% of measured, 2.4% of theoretical)  28069.4 GFLOP/s (36.8% of peak @ run clock)  AI 3694.192  ridge 324.1  -> compute-bound
+   clocks      SM 915-1005 MHz (drift 9.0%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      logits: cosine 0.971323 vs FP32 reference, max |diff| 1.12; (sanity check, not an accuracy measurement)
+   [invalid] clock_drift: clocks moved during steady state: SM 915-1005 MHz (9.0%), memory 5000-5000 MHz (0.0%); tolerance 5.0%
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 930 MHz); compare only against runs at the same power limit
+   [invalid] checksum_failed: output did not match reference: logits: cosine 0.971323 vs FP32 reference, max |diff| 1.12; (sanity check, not an accuracy measurement)
+
+== tensorrt/resnet50_b1/fp16  [latency, fp16, 1 launch/sample, n=425]  TRUSTWORTHY
+   device us   p50 1382.40  p90 1394.72  p99 1409.09  (first call 1500.19, excluded)
+   host   us   enqueue p50 276.59  p99 513.09
+   roofline    37.4 GB/s (15.9% of measured, 11.7% of theoretical)  5916.1 GFLOP/s (14.4% of peak @ run clock)  AI 158.290  ridge 175.1  -> memory-bound
+   clocks      SM 1005-1005 MHz (drift 0.0%)  mem 5000-5000 MHz  reasons: none  [locked]
+   output      logits: cosine 0.999986 vs FP32 reference, max |diff| 0.0111; (sanity check, not an accuracy measurement)
+
+== tensorrt/resnet50_b1/fp16+graph  [latency, fp16, 1 launch/sample, n=425]  TRUSTWORTHY
+   device us   p50 1391.42  p90 1396.38  p99 1402.88  (first call 1412.61, excluded)
+   host   us   enqueue p50 30.63  p99 64.40
+   roofline    37.1 GB/s (15.8% of measured, 11.6% of theoretical)  5877.7 GFLOP/s (14.3% of peak @ run clock)  AI 158.290  ridge 175.1  -> memory-bound
+   clocks      SM 1005-1005 MHz (drift 0.0%)  mem 5000-5000 MHz  reasons: none  [locked]
+   output      logits: cosine 0.999986 vs FP32 reference, max |diff| 0.0111; (sanity check, not an accuracy measurement)
+
+== tensorrt/resnet50_b1/fp32  [latency, fp32, 1 launch/sample, n=207]  TRUSTWORTHY
+   device us   p50 3907.58  p90 3924.06  p99 3933.76  (first call 8924.22, excluded)
+   host   us   enqueue p50 344.07  p99 646.27
+   roofline    26.3 GB/s (11.2% of measured, 8.2% of theoretical)  2092.9 GFLOP/s (40.7% of peak @ run clock)  AI 79.612  ridge 21.9  -> compute-bound
+   clocks      SM 1005-1005 MHz (drift 0.0%)  mem 5000-5000 MHz  reasons: none  [locked]
+   output      logits: cosine 1.000000 vs FP32 reference, max |diff| 4.05e-06; (sanity check, not an accuracy measurement)
+   [info] first_call_outlier: first call took 8.9242 ms on device (2.3x the steady-state p50 of 3.9076 ms); excluded from percentiles
+
+== tensorrt/resnet50_b1/fp32+graph  [latency, fp32, 1 launch/sample, n=207]  TRUSTWORTHY
+   device us   p50 3895.10  p90 3903.49  p99 3918.75  (first call 3919.81, excluded)
+   host   us   enqueue p50 35.44  p99 70.30
+   roofline    26.4 GB/s (11.2% of measured, 8.2% of theoretical)  2099.7 GFLOP/s (40.8% of peak @ run clock)  AI 79.612  ridge 21.9  -> compute-bound
+   clocks      SM 1005-1005 MHz (drift 0.0%)  mem 5000-5000 MHz  reasons: none  [locked]
+   output      logits: cosine 1.000000 vs FP32 reference, max |diff| 4.05e-06; (sanity check, not an accuracy measurement)
+
+== tensorrt/resnet50_b1/int8  [latency, int8, 1 launch/sample, n=500]  REJECTED
+   device us   p50 1031.97  p90 1050.62  p99 1197.63  (first call 10361.73, excluded)
+   host   us   enqueue p50 413.06  p99 894.29
+   roofline    27.5 GB/s (11.7% of measured, 8.6% of theoretical)  7925.0 GFLOP/s (9.6% of peak @ run clock)  AI 288.257  ridge 350.2  -> memory-bound
+   clocks      SM 1005-1005 MHz (drift 0.0%)  mem 5000-5000 MHz  reasons: none  [locked]
+   output      logits: cosine 0.985494 vs FP32 reference, max |diff| 0.527; (sanity check, not an accuracy measurement)
+   [invalid] checksum_failed: output did not match reference: logits: cosine 0.985494 vs FP32 reference, max |diff| 0.527; (sanity check, not an accuracy measurement)
+   [info] first_call_outlier: first call took 10.3617 ms on device (10.0x the steady-state p50 of 1.0320 ms); excluded from percentiles
+
+== tensorrt/resnet50_b1/int8+graph  [latency, int8, 1 launch/sample, n=500]  REJECTED
+   device us   p50 1039.55  p90 1044.99  p99 1053.09  (first call 1037.31, excluded)
+   host   us   enqueue p50 32.53  p99 57.20
+   roofline    27.3 GB/s (11.6% of measured, 8.5% of theoretical)  7867.2 GFLOP/s (9.6% of peak @ run clock)  AI 288.257  ridge 350.2  -> memory-bound
+   clocks      SM 1005-1005 MHz (drift 0.0%)  mem 5000-5000 MHz  reasons: none  [locked]
+   output      logits: cosine 0.985494 vs FP32 reference, max |diff| 0.527; (sanity check, not an accuracy measurement)
+   [invalid] checksum_failed: output did not match reference: logits: cosine 0.985494 vs FP32 reference, max |diff| 0.527; (sanity check, not an accuracy measurement)
+
+== onnxruntime/bert_base_b1/fp32  [latency, fp32, 1 launch/sample, n=200]  TRUSTWORTHY
+   device us   p50 9576.16  p90 9601.82  p99 9632.00  (first call 9765.12, excluded)
+   host   us   enqueue p50 2301.00  p99 3763.22
+   roofline    35.7 GB/s (15.2% of measured, 11.2% of theoretical)  2333.6 GFLOP/s (45.4% of peak @ run clock)  AI 65.381  ridge 21.9  -> compute-bound
+   clocks      SM 1005-1005 MHz (drift 0.0%)  mem 5000-5000 MHz  reasons: none  [locked]
+   output      hidden: cosine 1.000000 vs FP32 reference, max |diff| 9.06e-06 (sanity check, not an accuracy measurement)
+
+== onnxruntime/bert_base_b8/fp32  [latency, fp32, 1 launch/sample, n=200]  REJECTED
+   device us   p50 70481.63  p90 71603.90  p99 72889.98  (first call 49521.82, excluded)
+   host   us   enqueue p50 2685.78  p99 4768.92
+   roofline    5.0 GB/s (2.1% of measured, 1.6% of theoretical)  2536.5 GFLOP/s (78.6% of peak @ run clock)  AI 510.687  ridge 13.7  -> compute-bound
+   clocks      SM 615-735 MHz (drift 16.3%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      hidden: cosine 1.000000 vs FP32 reference, max |diff| 6.51e-05 (sanity check, not an accuracy measurement)
+   [invalid] clock_drift: clocks moved during steady state: SM 615-735 MHz (16.3%), memory 5000-5000 MHz (0.0%); tolerance 5.0%
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 630 MHz); compare only against runs at the same power limit
+
+== onnxruntime/gpt2_b1/fp32  [latency, fp32, 1 launch/sample, n=200]  REJECTED
+   device us   p50 12157.38  p90 12611.30  p99 12914.66  (first call 10959.46, excluded)
+   host   us   enqueue p50 1968.12  p99 3282.04
+   roofline    42.8 GB/s (18.2% of measured, 13.4% of theoretical)  2650.9 GFLOP/s (58.5% of peak @ run clock)  AI 61.881  ridge 19.3  -> compute-bound
+   clocks      SM 840-930 MHz (drift 9.7%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      logits: cosine 1.000000 vs FP32 reference, max |diff| 0.000397 (sanity check, not an accuracy measurement)
+   [invalid] clock_drift: clocks moved during steady state: SM 840-930 MHz (9.7%), memory 5000-5000 MHz (0.0%); tolerance 5.0%
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 885 MHz); compare only against runs at the same power limit
+
+== onnxruntime/gpt2_b4/fp32  [latency, fp32, 1 launch/sample, n=200]  REJECTED
+   device us   p50 52626.66  p90 54323.20  p99 55234.46  (first call 33305.60, excluded)
+   host   us   enqueue p50 2209.32  p99 3938.72
+   roofline    11.4 GB/s (4.8% of measured, 3.6% of theoretical)  2449.6 GFLOP/s (79.7% of peak @ run clock)  AI 215.501  ridge 13.1  -> compute-bound
+   clocks      SM 570-630 MHz (drift 9.5%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      logits: cosine 1.000000 vs FP32 reference, max |diff| 0.000618 (sanity check, not an accuracy measurement)
+   [invalid] clock_drift: clocks moved during steady state: SM 570-630 MHz (9.5%), memory 5000-5000 MHz (0.0%); tolerance 5.0%
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 600 MHz); compare only against runs at the same power limit
+
+== onnxruntime/resnet50_b16/fp32  [latency, fp32, 1 launch/sample, n=200]  REJECTED
+   device us   p50 61018.37  p90 62458.18  p99 63364.73  (first call 51132.35, excluded)
+   host   us   enqueue p50 1445.89  p99 2586.27
+   roofline    1.8 GB/s (0.8% of measured, 0.6% of theoretical)  2144.5 GFLOP/s (57.0% of peak @ run clock)  AI 1170.222  ridge 16.0  -> compute-bound
+   clocks      SM 720-795 MHz (drift 9.4%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      logits: cosine 1.000000 vs FP32 reference, max |diff| 1.36e-05 (sanity check, not an accuracy measurement)
+   [invalid] clock_drift: clocks moved during steady state: SM 720-795 MHz (9.4%), memory 5000-5000 MHz (0.0%); tolerance 5.0%
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 735 MHz); compare only against runs at the same power limit
+
+== onnxruntime/resnet50_b1/fp32  [latency, fp32, 1 launch/sample, n=200]  TRUSTWORTHY
+   device us   p50 7366.11  p90 7391.71  p99 7744.35  (first call 7398.05, excluded)
+   host   us   enqueue p50 1659.30  p99 3885.49
+   roofline    13.9 GB/s (5.9% of measured, 4.4% of theoretical)  1110.3 GFLOP/s (21.6% of peak @ run clock)  AI 79.612  ridge 21.9  -> compute-bound
+   clocks      SM 1005-1005 MHz (drift 0.0%)  mem 5000-5000 MHz  reasons: none  [locked]
+   output      logits: cosine 1.000000 vs FP32 reference, max |diff| 4.29e-06 (sanity check, not an accuracy measurement)
+
+== torch_eager/bert_base_b1/fp16  [latency, fp16, 1 launch/sample, n=200]  TRUSTWORTHY
+   device us   p50 9367.30  p90 10735.68  p99 15577.41  (first call 13361.89, excluded)
+   host   us   enqueue p50 9359.66  p99 15566.38
+   roofline    19.3 GB/s (8.2% of measured, 6.0% of theoretical)  2385.7 GFLOP/s (5.8% of peak @ run clock)  AI 123.641  ridge 175.1  -> memory-bound
+   clocks      SM 1005-1005 MHz (drift 0.0%)  mem 5000-5000 MHz  reasons: none  [locked]
+   output      hidden: cosine 0.999999 vs FP32 reference, max |diff| 0.0118 (sanity check, not an accuracy measurement)
+   [warning] launch_bound: host enqueue p50 9.3597 ms is 100% of device p50 9.3673 ms; device time includes the GPU waiting for the host to submit work
+
+== torch_eager/bert_base_b1/fp32  [latency, fp32, 1 launch/sample, n=200]  REJECTED
+   device us   p50 10536.77  p90 11759.65  p99 16136.67  (first call 11631.94, excluded)
+   host   us   enqueue p50 9581.79  p99 16124.18
+   roofline    32.4 GB/s (13.8% of measured, 10.1% of theoretical)  2120.9 GFLOP/s (44.5% of peak @ run clock)  AI 65.381  ridge 20.3  -> compute-bound
+   clocks      SM 870-1005 MHz (drift 13.4%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      hidden: cosine 1.000000 vs FP32 reference, max |diff| 0 (sanity check, not an accuracy measurement)
+   [invalid] clock_drift: clocks moved during steady state: SM 870-1005 MHz (13.4%), memory 5000-5000 MHz (0.0%); tolerance 5.0%
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 930 MHz); compare only against runs at the same power limit
+   [warning] launch_bound: host enqueue p50 9.5818 ms is 91% of device p50 10.5368 ms; device time includes the GPU waiting for the host to submit work
+
+== torch_eager/bert_base_b8/fp16  [latency, fp16, 1 launch/sample, n=200]  REJECTED
+   device us   p50 14649.92  p90 14964.96  p99 17846.98  (first call 13629.89, excluded)
+   host   us   enqueue p50 9993.80  p99 17835.26
+   roofline    12.8 GB/s (5.4% of measured, 4.0% of theoretical)  12203.3 GFLOP/s (35.5% of peak @ run clock)  AI 952.779  ridge 146.4  -> compute-bound
+   clocks      SM 825-870 MHz (drift 5.2%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      hidden: cosine 0.999998 vs FP32 reference, max |diff| 0.123 (sanity check, not an accuracy measurement)
+   [invalid] clock_drift: clocks moved during steady state: SM 825-870 MHz (5.2%), memory 5000-5000 MHz (0.0%); tolerance 5.0%
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 840 MHz); compare only against runs at the same power limit
+
+== torch_eager/bert_base_b8/fp32  [latency, fp32, 1 launch/sample, n=200]  TRUSTWORTHY
+   device us   p50 73787.45  p90 74837.66  p99 75331.65  (first call 53601.47, excluded)
+   host   us   enqueue p50 10890.55  p99 20524.75
+   roofline    4.7 GB/s (2.0% of measured, 1.5% of theoretical)  2422.9 GFLOP/s (75.1% of peak @ run clock)  AI 510.687  ridge 13.7  -> compute-bound
+   clocks      SM 615-630 MHz (drift 2.4%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      hidden: cosine 1.000000 vs FP32 reference, max |diff| 0 (sanity check, not an accuracy measurement)
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 630 MHz); compare only against runs at the same power limit
+
+== torch_eager/gpt2_b1/fp16  [latency, fp16, 1 launch/sample, n=200]  TRUSTWORTHY
+   device us   p50 11896.86  p90 13072.42  p99 18050.56  (first call 14497.02, excluded)
+   host   us   enqueue p50 10942.05  p99 17101.12
+   roofline    23.6 GB/s (10.0% of measured, 7.4% of theoretical)  2709.0 GFLOP/s (6.6% of peak @ run clock)  AI 114.945  ridge 175.1  -> memory-bound
+   clocks      SM 1005-1005 MHz (drift 0.0%)  mem 5000-5000 MHz  reasons: none  [locked]
+   output      logits: cosine 1.000000 vs FP32 reference, max |diff| 0.334 (sanity check, not an accuracy measurement)
+   [warning] launch_bound: host enqueue p50 10.9420 ms is 92% of device p50 11.8969 ms; device time includes the GPU waiting for the host to submit work
+
+== torch_eager/gpt2_b1/fp32  [latency, fp32, 1 launch/sample, n=200]  TRUSTWORTHY
+   device us   p50 23543.55  p90 31141.89  p99 35667.65  (first call 28506.34, excluded)
+   host   us   enqueue p50 21506.41  p99 33656.51
+   roofline    22.1 GB/s (9.4% of measured, 6.9% of theoretical)  1368.9 GFLOP/s (26.6% of peak @ run clock)  AI 61.881  ridge 21.9  -> compute-bound
+   clocks      SM 975-1005 MHz (drift 3.0%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      logits: cosine 1.000000 vs FP32 reference, max |diff| 0 (sanity check, not an accuracy measurement)
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 1005 MHz); compare only against runs at the same power limit
+   [warning] high_variance: p90/p50 = 1.32 (threshold 1.25)
+   [warning] launch_bound: host enqueue p50 21.5064 ms is 91% of device p50 23.5436 ms; device time includes the GPU waiting for the host to submit work
+
+== torch_eager/gpt2_b4/fp16  [latency, fp16, 1 launch/sample, n=200]  TRUSTWORTHY
+   device us   p50 15635.62  p90 16627.71  p99 23461.92  (first call 16483.04, excluded)
+   host   us   enqueue p50 11699.50  p99 19609.46
+   roofline    23.1 GB/s (9.8% of measured, 7.2% of theoretical)  8244.8 GFLOP/s (20.0% of peak @ run clock)  AI 356.985  ridge 175.1  -> compute-bound
+   clocks      SM 1005-1005 MHz (drift 0.0%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      logits: cosine 1.000000 vs FP32 reference, max |diff| 1.41 (sanity check, not an accuracy measurement)
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 1005 MHz); compare only against runs at the same power limit
+
+== torch_eager/gpt2_b4/fp32  [latency, fp32, 1 launch/sample, n=200]  REJECTED
+   device us   p50 51269.31  p90 52790.40  p99 53736.19  (first call 44785.82, excluded)
+   host   us   enqueue p50 11687.86  p99 22417.60
+   roofline    11.7 GB/s (5.0% of measured, 3.6% of theoretical)  2514.4 GFLOP/s (72.8% of peak @ run clock)  AI 215.501  ridge 14.7  -> compute-bound
+   clocks      SM 645-720 MHz (drift 10.4%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      logits: cosine 1.000000 vs FP32 reference, max |diff| 0 (sanity check, not an accuracy measurement)
+   [invalid] clock_drift: clocks moved during steady state: SM 645-720 MHz (10.4%), memory 5000-5000 MHz (0.0%); tolerance 5.0%
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 675 MHz); compare only against runs at the same power limit
+
+== torch_eager/resnet50_b16/fp16  [latency, fp16, 1 launch/sample, n=200]  REJECTED
+   device us   p50 23738.05  p90 23861.57  p99 24011.71  (first call 23398.53, excluded)
+   host   us   enqueue p50 7951.76  p99 15568.14
+   roofline    2.6 GB/s (1.1% of measured, 0.8% of theoretical)  5512.4 GFLOP/s (14.2% of peak @ run clock)  AI 2153.664  ridge 164.7  -> compute-bound
+   clocks      SM 915-1005 MHz (drift 9.0%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      logits: cosine 0.999993 vs FP32 reference, max |diff| 0.0235 (sanity check, not an accuracy measurement)
+   [invalid] clock_drift: clocks moved during steady state: SM 915-1005 MHz (9.0%), memory 5000-5000 MHz (0.0%); tolerance 5.0%
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 945 MHz); compare only against runs at the same power limit
+
+== torch_eager/resnet50_b16/fp32  [latency, fp32, 1 launch/sample, n=200]  REJECTED
+   device us   p50 63735.23  p90 64886.79  p99 65611.75  (first call 53044.93, excluded)
+   host   us   enqueue p50 6106.82  p99 12950.24
+   roofline    1.8 GB/s (0.7% of measured, 0.5% of theoretical)  2053.1 GFLOP/s (54.6% of peak @ run clock)  AI 1170.222  ridge 16.0  -> compute-bound
+   clocks      SM 690-765 MHz (drift 9.8%)  mem 5000-5000 MHz  reasons: sw_power_cap  [locked]
+   output      logits: cosine 1.000000 vs FP32 reference, max |diff| 0 (sanity check, not an accuracy measurement)
+   [invalid] clock_drift: clocks moved during steady state: SM 690-765 MHz (9.8%), memory 5000-5000 MHz (0.0%); tolerance 5.0%
+   [warning] power_cap_throttle: clocks were limited by the power cap during steady state (SM median 735 MHz); compare only against runs at the same power limit
+
+== torch_eager/resnet50_b1/fp16  [latency, fp16, 1 launch/sample, n=200]  TRUSTWORTHY
+   device us   p50 7972.19  p90 11556.90  p99 15191.55  (first call 9476.10, excluded)
+   host   us   enqueue p50 7963.60  p99 15180.31
+   roofline    6.5 GB/s (2.8% of measured, 2.0% of theoretical)  1025.9 GFLOP/s (2.5% of peak @ run clock)  AI 158.290  ridge 175.1  -> memory-bound
+   clocks      SM 1005-1005 MHz (drift 0.0%)  mem 5000-5000 MHz  reasons: none  [locked]
+   output      logits: cosine 0.999992 vs FP32 reference, max |diff| 0.00949 (sanity check, not an accuracy measurement)
+   [warning] high_variance: p90/p50 = 1.45 (threshold 1.25)
+   [warning] launch_bound: host enqueue p50 7.9636 ms is 100% of device p50 7.9722 ms; device time includes the GPU waiting for the host to submit work
+
+== torch_eager/resnet50_b1/fp32  [latency, fp32, 1 launch/sample, n=200]  TRUSTWORTHY
+   device us   p50 7374.08  p90 7552.99  p99 10220.22  (first call 8564.93, excluded)
+   host   us   enqueue p50 5593.25  p99 10210.51
+   roofline    13.9 GB/s (5.9% of measured, 4.4% of theoretical)  1109.1 GFLOP/s (21.6% of peak @ run clock)  AI 79.612  ridge 21.9  -> compute-bound
+   clocks      SM 1005-1005 MHz (drift 0.0%)  mem 5000-5000 MHz  reasons: none  [locked]
+   output      logits: cosine 1.000000 vs FP32 reference, max |diff| 0 (sanity check, not an accuracy measurement)
+
+wrote results/Tesla_T4-20261013/phase2/phase2_latency.json

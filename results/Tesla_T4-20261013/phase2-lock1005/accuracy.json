@@ -1,0 +1,182 @@
+{
+  "torch_eager/resnet50_b1/fp32": {
+    "metric": "top1_pct",
+    "value": 86.29032258064517,
+    "n": 992
+  },
+  "torch_eager/resnet50_b16/fp32": {
+    "metric": "top1_pct",
+    "value": 86.29032258064517,
+    "n": 992
+  },
+  "torch_eager/resnet50_b1/fp16": {
+    "metric": "top1_pct",
+    "value": 86.29032258064517,
+    "n": 992
+  },
+  "torch_eager/resnet50_b16/fp16": {
+    "metric": "top1_pct",
+    "value": 86.18951612903226,
+    "n": 992
+  },
+  "onnxruntime/resnet50_b1/fp32": {
+    "metric": "top1_pct",
+    "value": 86.29032258064517,
+    "n": 992
+  },
+  "onnxruntime/resnet50_b16/fp32": {
+    "metric": "top1_pct",
+    "value": 86.29032258064517,
+    "n": 992
+  },
+  "torch_eager/bert_base_b1/fp32": {
+    "metric": "cosine_vs_fp32",
+    "value": 1.0,
+    "n": 256
+  },
+  "torch_eager/bert_base_b8/fp32": {
+    "metric": "cosine_vs_fp32",
+    "value": 0.9999999999993163,
+    "n": 256
+  },
+  "torch_eager/bert_base_b1/fp16": {
+    "metric": "cosine_vs_fp32",
+    "value": 0.9999982199838842,
+    "n": 256
+  },
+  "torch_eager/bert_base_b8/fp16": {
+    "metric": "cosine_vs_fp32",
+    "value": 0.9999984010053165,
+    "n": 256
+  },
+  "onnxruntime/bert_base_b1/fp32": {
+    "metric": "cosine_vs_fp32",
+    "value": 0.9999999999994307,
+    "n": 256
+  },
+  "onnxruntime/bert_base_b8/fp32": {
+    "metric": "cosine_vs_fp32",
+    "value": 0.9999999999994135,
+    "n": 256
+  },
+  "torch_eager/gpt2_b1/fp32": {
+    "metric": "perplexity",
+    "value": 59.489681552209554,
+    "n": 32
+  },
+  "torch_eager/gpt2_b4/fp32": {
+    "metric": "perplexity",
+    "value": 59.48968947263085,
+    "n": 32
+  },
+  "torch_eager/gpt2_b1/fp16": {
+    "metric": "perplexity",
+    "value": 59.498461187505875,
+    "n": 32
+  },
+  "torch_eager/gpt2_b4/fp16": {
+    "metric": "perplexity",
+    "value": 59.52560593076497,
+    "n": 32
+  },
+  "onnxruntime/gpt2_b1/fp32": {
+    "metric": "perplexity",
+    "value": 59.48967253700239,
+    "n": 32
+  },
+  "onnxruntime/gpt2_b4/fp32": {
+    "metric": "perplexity",
+    "value": 59.489675190762675,
+    "n": 32
+  },
+  "tensorrt/bert_base_b1/fp16": {
+    "metric": "cosine_vs_fp32",
+    "value": 0.9999939441450403,
+    "n": 256
+  },
+  "tensorrt/bert_base_b1/fp32": {
+    "metric": "cosine_vs_fp32",
+    "value": 0.9999999999993942,
+    "n": 256
+  },
+  "tensorrt/bert_base_b1/int8": {
+    "metric": "cosine_vs_fp32",
+    "value": 0.6625237115522509,
+    "n": 256
+  },
+  "tensorrt/bert_base_b8/fp16": {
+    "metric": "cosine_vs_fp32",
+    "value": 0.9999957431229369,
+    "n": 256
+  },
+  "tensorrt/bert_base_b8/fp32": {
+    "metric": "cosine_vs_fp32",
+    "value": 0.999999999998828,
+    "n": 256
+  },
+  "tensorrt/bert_base_b8/int8": {
+    "metric": "cosine_vs_fp32",
+    "value": 0.6531694114276327,
+    "n": 256
+  },
+  "tensorrt/gpt2_b1/fp16": {
+    "metric": "perplexity",
+    "value": 59.64666687256878,
+    "n": 32
+  },
+  "tensorrt/gpt2_b1/fp32": {
+    "metric": "perplexity",
+    "value": 59.48968366581517,
+    "n": 32
+  },
+  "tensorrt/gpt2_b1/int8": {
+    "metric": "perplexity",
+    "value": 345425.25956111244,
+    "n": 32
+  },
+  "tensorrt/gpt2_b4/fp16": {
+    "metric": "perplexity",
+    "value": 59.7349976161586,
+    "n": 32
+  },
+  "tensorrt/gpt2_b4/fp32": {
+    "metric": "perplexity",
+    "value": 59.48967581713369,
+    "n": 32
+  },
+  "tensorrt/gpt2_b4/int8": {
+    "metric": "perplexity",
+    "value": 65407.04309049059,
+    "n": 32
+  },
+  "tensorrt/resnet50_b16/fp16": {
+    "metric": "top1_pct",
+    "value": 86.29032258064517,
+    "n": 992
+  },
+  "tensorrt/resnet50_b16/fp32": {
+    "metric": "top1_pct",
+    "value": 86.29032258064517,
+    "n": 992
+  },
+  "tensorrt/resnet50_b16/int8": {
+    "metric": "top1_pct",
+    "value": 86.08870967741935,
+    "n": 992
+  },
+  "tensorrt/resnet50_b1/fp16": {
+    "metric": "top1_pct",
+    "value": 86.18951612903226,
+    "n": 992
+  },
+  "tensorrt/resnet50_b1/fp32": {
+    "metric": "top1_pct",
+    "value": 86.29032258064517,
+    "n": 992
+  },
+  "tensorrt/resnet50_b1/int8": {
+    "metric": "top1_pct",
+    "value": 85.48387096774194,
+    "n": 992
+  }
+}

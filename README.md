@@ -14,7 +14,7 @@ inconsistent** instead of printing them.
 |---|---|---|
 | 1 | Measurement core: event timing, warmup/steady state, clocks, roofline, JSON | **Done.** Run on a Tesla T4 (results below) |
 | 5 | Trap suite: deliberately wrong benchmarks the harness must reject (`--self-test`) | **Done.** 12/12 traps pass on a Tesla T4; synthetic layer and SASS check run in CI |
-| 2 | TensorRT FP32/FP16/INT8 vs PyTorch eager vs ONNX Runtime; CUDA Graphs | **Pipeline built; TensorRT code compiles against TensorRT 11.4 in CI. Not yet run on a GPU.** |
+| 2 | TensorRT FP32/FP16/INT8 vs PyTorch eager vs ONNX Runtime; CUDA Graphs | **First T4 run rejected by the harness itself (31 of 54 timings: clock drift, broken INT8). Both causes fixed; rerun pending.** [Details](#first-t4-run-rejected) |
 | 3 | Per-layer attribution (IProfiler), fusion diff vs ONNX, roofline classification | Planned |
 | 4 | Fused LayerNorm + residual kernel, naive vs optimized, Nsight Compute | Planned |
 
@@ -100,6 +100,73 @@ All 12 traps passed: 6 synthetic and 6 on the GPU. Full table:
   itself failed its audit during the session. A refused comparison does not
   report which flag caused it, so the cause was not recorded. Refusals now
   name their flags, and T5 will be re-run with locked clocks.
+
+### First T4 run: rejected
+
+The first complete run (Tesla T4, 2026-10-13, trtbench `66c02603c051`, clocks
+locked at 1005 MHz) produced 54 timings. The auditor rejected 31 of them:
+
+| Rejected for | Timings |
+|---|---:|
+| `clock_drift` only | 19 |
+| `checksum_failed` only | 8 |
+| both | 4 |
+
+Everything the run wrote is committed in
+[`results/Tesla_T4-20261013/phase2-lock1005/`](results/Tesla_T4-20261013/phase2-lock1005),
+including the generated tables. None of its speedups are quoted here,
+because most comparisons in it lost their baseline to a rejection.
+
+**Clock drift.** `nvidia-smi -lgc` sets a ceiling, not a floor. Under the
+T4's 70 W cap, heavy FP32 workloads ran far below the 1005 MHz lock, and
+moved while they ran: ONNX Runtime GPT-2 at batch 4 sat at 570–630 MHz,
+and TensorRT ResNet-50 FP32 at batch 16 at 690–885 MHz. The lock is now
+495 MHz, below the lowest clock the cap imposed on any workload in that run.
+Results for each lock setting go to their own directory, so timings at
+different clocks never mix.
+
+**Broken INT8 for the transformers.** With ModelOpt's default INT8 recipe:
+
+| Model | Batch | FP32 | INT8 (default recipe) |
+|---|---:|---:|---:|
+| BERT-base, cosine vs FP32 | 1 / 8 | 1.000000 | 0.662524 / 0.653169 |
+| GPT-2, perplexity | 1 / 4 | 59.49 | 345,425 / 65,407 |
+| ResNet-50, top-1 % | 1 / 16 | 86.29 | 85.48 / 86.09 |
+
+The same quantized graphs fail the same way in ONNX Runtime on CPU, so the
+fault is in the quantized graph, not in TensorRT or the harness.
+`scripts/diagnose_int8.py` reproduces the diagnosis on CPU; its output is in
+[`results/int8_diagnosis_cpu.txt`](results/int8_diagnosis_cpu.txt). For
+BERT, cosine vs FP32 on 16 test windows, with unquantized ops in FP32:
+
+| What is INT8 | Cosine |
+|---|---:|
+| ModelOpt default (every linear, the attention BMMs, residual Adds) | 0.6712 |
+| only the FFN up-projections (inputs come from LayerNorm) | 0.8961 |
+| the same, after SmoothQuant | 0.9979 |
+| only layer 2's FFN down-projection, after SmoothQuant | 0.9679 |
+| the recipe above | 0.9960 |
+
+- **LayerNorm-fed linears.** In every layer, the largest channel of the
+  attention LayerNorm output spans 13–37× the median channel's range, and
+  in 9 of 12 layers the two largest are channels 308 and 381. With one scale
+  per tensor, every other channel quantizes to a handful of levels. SmoothQuant
+  divides each input channel by s and multiplies the matching weight row by
+  s, which is exact in FP32 (cosine 1.0000) and moves the range into the
+  weights. LayerNorm's output also feeds the residual connection, so the
+  division is an explicit `Mul` rather than folded into LayerNorm's affine.
+- **FFN down-projections.** Their inputs come from GELU, and smoothing does
+  not rescue them: one such layer in INT8, after SmoothQuant, costs more
+  than all twelve up-projections together. I have not established why, so
+  they stay FP16.
+
+On GPT-2 (8 windows), the same recipe gives perplexity 56.07 against FP32's
+55.14. ModelOpt's default gives 4,000.
+
+These are diagnosis numbers on a small CPU set. The published INT8 accuracy
+will come from the rerun on the T4, through TensorRT, on the full evaluation
+sets. Keeping more of each transformer in FP16 also costs INT8 speed; the
+rerun measures how much is left.
 
 ## Methodology
 
@@ -246,7 +313,8 @@ lower-precision engine is only reported next to what it cost in accuracy.
 ## Phase 2: TensorRT against PyTorch and ONNX Runtime
 
 `scripts/run_phase2.sh` runs the whole comparison and can resume after an
-interruption. No results yet; this section describes the method.
+interruption. The first run on a T4 was rejected (below); this section
+describes the method as it now stands.
 
 **Models and shapes**, identical for every backend:
 
@@ -268,9 +336,21 @@ implicit INT8 calibrator are gone.
 - **FP32**: the exported graph. TF32 is disabled, which changes nothing on
   Turing but keeps "FP32" honest on newer GPUs.
 - **FP16**: ModelOpt AutoCast, with FP32 network inputs and outputs.
-- **INT8**: ModelOpt post-training quantization. It inserts explicit Q/DQ on
-  every Conv, Gemm and MatMul, calibrated with entropy calibration. Other
-  ops run in FP16.
+- **INT8**: ModelOpt post-training quantization with explicit Q/DQ and
+  entropy calibration; ops left out of INT8 run in FP16. The recipe depends
+  on the model family (`python/trtbench/int8_recipe.py`):
+  - ResNet-50: ModelOpt's default, Q/DQ on every Conv, Gemm and MatMul.
+  - BERT and GPT-2: SmoothQuant (α = 0.5) on every linear layer with a
+    constant weight, then INT8 only on the up-projections. Down-projections,
+    activation × activation MatMuls (attention, GPT-2's tied LM head) and
+    residual Adds stay FP16. The rules are structural, so one recipe serves
+    both models. Why: see [the first run](#first-t4-run-rejected).
+- **Output sanity check**: every timed engine's output must have cosine
+  ≥ 0.99 with the FP32 PyTorch output on the benchmark inputs, and ≥ 0.95
+  for INT8. It catches engines that compute the wrong thing; the accuracy
+  column, not this check, judges quantization quality. The INT8 threshold
+  was set *after* the first run, where correct ResNet-50 INT8 engines scored
+  0.971–0.985 with top-1 within 0.8 points of FP32.
 
 **INT8 calibration set**: 512 samples per model, taken from the *training*
 split, so they never overlap the evaluation set.
@@ -407,9 +487,12 @@ include/trtbench/       core interfaces (pure C++17)
 include/trtbench/cuda/  Workload, DeviceContext, runner, NVML, clock lock
 src/core/               stats, clocks, roofline, audit, compare, JSON
 src/cuda/               event-timed runner, NVML via dlopen, calibration kernels
+src/trt/                TensorRT engine workload (timing, CUDA graph, evaluation)
 tools/                  trtbench CLI (CPU-only builds: --self-test only)
-scripts/                run_phase1.sh, check_dce_sass.py
-python/trtbench/        report loading, validation, diff
+scripts/                run_phase1.sh, run_phase2.sh, setup_tensorrt.sh,
+                        check_dce_sass.py, diagnose_int8.py
+python/trtbench/        reports and diff; Phase 2 models, data, ONNX stats,
+                        INT8 recipes, engine builds, PyTorch/ORT runner
 tests/cpp, tests/python unit tests; GPU tests skip without a device
 results/                committed raw JSON from real runs
 ```
@@ -462,6 +545,13 @@ results/                committed raw JSON from real runs
   - GPT-2 perplexity uses 4,064 tokens. That is enough to compare variants
     scored on the same tokens, but not a benchmark perplexity.
   - ONNX Runtime is measured at FP32 only.
+  - Timings are taken at a 495 MHz lock, well under the T4's 1590 MHz
+    maximum, so that the power cap cannot move the clock mid-run. They
+    compare backends at one clock; they are not what a T4 does at boost.
+  - The transformer INT8 recipe was chosen by diagnosing BERT, then applied
+    unchanged to GPT-2. It is partial INT8 (down-projections, attention and
+    residuals stay FP16), so it says nothing about what full INT8 could reach
+    with quantization-aware training or a better PTQ method.
   - Host-side numbers for PyTorch and ONNX Runtime include the Python
     interpreter. They are reported separately from device time.
 - Not tested: multi-GPU, MIG, MPS, distributed inference, or concurrent

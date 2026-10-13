@@ -1,0 +1,32 @@
+{
+  "model": "resnet50",
+  "batch": 16,
+  "precision": "fp16",
+  "precision_label": "fp16",
+  "engine": "fp16.plan",
+  "onnx": "fp16.onnx",
+  "flops": 130853896192,
+  "bytes_lower_bound": 60758736,
+  "inputs": {
+    "x": "input_x.bin"
+  },
+  "reference_outputs": {
+    "logits": "ref_logits.bin"
+  },
+  "eval_inputs": {
+    "x": "../eval_x.bin"
+  },
+  "eval_count": 992,
+  "export": {
+    "exporter": "torchscript",
+    "torch": "2.11.0+cu130",
+    "opset": "19",
+    "constant_folded": "onnx-graphsurgeon"
+  },
+  "variant": {
+    "how": "modelopt.onnx.autocast fp16, keep_io_types=True, ranges from 16 real calibration samples"
+  },
+  "trt_version": "11.4.0.106",
+  "build_seconds": 36.5,
+  "layers_in_network": 128
+}

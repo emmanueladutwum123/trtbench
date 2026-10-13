@@ -1,0 +1,26 @@
+INT8 diagnosis, ONNX Runtime CPU, batch 1, 64 calibration windows, unquantized ops in FP32
+
+bert_base (16 test windows)
+  ModelOpt default INT8 (every MatMul/Gemm + residual Adds): cosine vs FP32 0.6712
+  layer  0 attention LayerNorm output: max/median channel range  20.1x, top channels [308, 381]
+  layer  1 attention LayerNorm output: max/median channel range  21.5x, top channels [308, 381]
+  layer  2 attention LayerNorm output: max/median channel range  17.4x, top channels [308, 381]
+  layer  3 attention LayerNorm output: max/median channel range  32.0x, top channels [381, 308]
+  layer  4 attention LayerNorm output: max/median channel range  36.5x, top channels [381, 308]
+  layer  5 attention LayerNorm output: max/median channel range  33.6x, top channels [381, 308]
+  layer  6 attention LayerNorm output: max/median channel range  33.6x, top channels [381, 308]
+  layer  7 attention LayerNorm output: max/median channel range  33.2x, top channels [381, 308]
+  layer  8 attention LayerNorm output: max/median channel range  31.1x, top channels [381, 308]
+  layer  9 attention LayerNorm output: max/median channel range  19.2x, top channels [381, 123]
+  layer 10 attention LayerNorm output: max/median channel range  18.1x, top channels [381, 180]
+  layer 11 attention LayerNorm output: max/median channel range  13.1x, top channels [308, 180]
+  same, other ops FP16 (ORT CPU FP16 kernels; not TRT):    cosine vs FP32 0.2591
+  only FFN up-projections (fed by LayerNorm):              cosine vs FP32 0.8961
+  SmoothQuant alone, FP32 (must be ~1):                    cosine vs FP32 1.0000
+  only FFN up-projections, after SmoothQuant:              cosine vs FP32 0.9979
+  only layer 2 FFN down-projection, after SmoothQuant:     cosine vs FP32 0.9679
+  trtbench recipe (48 tensors smoothed, 36 linears/BMMs kept out):        cosine vs FP32 0.9960
+
+gpt2 (8 test windows)
+  ModelOpt default INT8 (every MatMul/Gemm + residual Adds): perplexity 4000.19 (FP32 55.14)
+  trtbench recipe (48 tensors smoothed, 37 linears/BMMs kept out):        perplexity 56.07 (FP32 55.14)

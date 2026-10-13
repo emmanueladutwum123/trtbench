@@ -85,6 +85,9 @@ class EngineWorkload final : public cuda::Workload {
     meta_ = nlohmann::json::parse(f);
     base_ = dir_of(meta_path);
     precision_ = precision_from_string(meta_.at("precision").get<std::string>());
+    // Written by engines.py per precision; the check catches a wrong
+    // computation, the accuracy column judges quantization quality.
+    min_cosine_ = meta_.value("sanity_min_cosine", 0.99);
     name_ = "tensorrt/" + meta_.at("model").get<std::string>() + "_b" +
             std::to_string(meta_.at("batch").get<int>()) + "/" +
             meta_.at("precision_label").get<std::string>() + (graph_ ? "+graph" : "");
@@ -150,10 +153,10 @@ class EngineWorkload final : public cuda::Workload {
       const double cosine = (ng > 0 && nr > 0) ? dot / std::sqrt(ng * nr) : 0;
       c.value += cosine;
       char buf[200];
-      std::snprintf(buf, sizeof buf, "%s: cosine %.6f vs FP32 reference, max |diff| %.3g%s; ",
-                    t.name.c_str(), cosine, max_abs, finite ? "" : ", NON-FINITE");
+      std::snprintf(buf, sizeof buf, "%s: cosine %.6f vs FP32 reference (min %.2f), max |diff| %.3g%s; ",
+                    t.name.c_str(), cosine, min_cosine_, max_abs, finite ? "" : ", NON-FINITE");
       notes += buf;
-      if (!finite || cosine < 0.99) c.passed = false;
+      if (!finite || cosine < min_cosine_) c.passed = false;
     }
     c.note = notes + "(sanity check, not an accuracy measurement)";
     return c;
@@ -271,6 +274,7 @@ class EngineWorkload final : public cuda::Workload {
   std::string base_;
   std::string name_;
   Precision precision_ = Precision::FP32;
+  double min_cosine_ = 0.99;
   TrtPtr<nvinfer1::IRuntime> runtime_;
   TrtPtr<nvinfer1::ICudaEngine> engine_;
   TrtPtr<nvinfer1::IExecutionContext> context_;

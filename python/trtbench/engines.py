@@ -21,6 +21,13 @@ from typing import Dict
 
 PRECISIONS = ("fp32", "fp16", "int8")
 
+# Output sanity check (cosine vs the FP32 PyTorch output on the benchmark
+# inputs). It exists to catch an engine that computes the wrong thing, not to
+# grade quantization: that is the accuracy column. INT8 gets 0.95 because the
+# first T4 run showed correct ResNet-50 INT8 engines at 0.971-0.985 (top-1
+# within 0.8 points of FP32); the threshold was set after seeing that run.
+SANITY_MIN_COSINE = {"fp32": 0.99, "fp16": 0.99, "int8": 0.95}
+
 
 def build_engine(onnx_path: Path, plan_path: Path, timing_cache: Path) -> Dict:
     import tensorrt as trt
@@ -61,17 +68,23 @@ def build_all(work: Path, models, rebuild: bool = False) -> None:
                 onnx_path = bdir / f"{prec}.onnx"
                 meta_path = bdir / f"{prec}.meta.json"
                 # A meta older than its ONNX describes an engine built from a
-                # previous variant (prepare redid it), so rebuild.
+                # previous variant (prepare redid it), so rebuild. A fresh
+                # engine keeps its build info but gets its meta rewritten, so
+                # meta fields added later reach engines built earlier.
                 fresh = (meta_path.exists() and onnx_path.exists()
                          and meta_path.stat().st_mtime >= onnx_path.stat().st_mtime)
-                if fresh and not rebuild:
-                    print(f"[engines] {name} b{batch} {prec}: exists")
-                    continue
                 if not onnx_path.exists():
                     print(f"[engines] {name} b{batch} {prec}: NO ONNX ({onnx_path.name}); skipped")
                     continue
-                print(f"[engines] {name} b{batch} {prec}: building", flush=True)
-                info = build_engine(onnx_path, bdir / f"{prec}.plan", work / "timing.cache")
+                if fresh and not rebuild:
+                    old = json.loads(meta_path.read_text())
+                    info = {k: old[k] for k in ("trt_version", "build_seconds", "layers_in_network")}
+                    print(f"[engines] {name} b{batch} {prec}: exists")
+                else:
+                    print(f"[engines] {name} b{batch} {prec}: building", flush=True)
+                    info = build_engine(onnx_path, bdir / f"{prec}.plan", work / "timing.cache")
+                    print(f"[engines]   done in {info['build_seconds']} s "
+                          f"(TensorRT {info['trt_version']})")
                 stats = json.loads((bdir / f"{prec}.stats.json").read_text())
                 prep = json.loads((bdir / "prepare.json").read_text())
                 meta = {
@@ -89,7 +102,7 @@ def build_all(work: Path, models, rebuild: bool = False) -> None:
                     "eval_count": prep["eval_count"],
                     "export": prep["export"],
                     "variant": prep["variants"][prec],
+                    "sanity_min_cosine": SANITY_MIN_COSINE[prec],
                     **info,
                 }
                 meta_path.write_text(json.dumps(meta, indent=2))
-                print(f"[engines]   done in {info['build_seconds']} s (TensorRT {info['trt_version']})")

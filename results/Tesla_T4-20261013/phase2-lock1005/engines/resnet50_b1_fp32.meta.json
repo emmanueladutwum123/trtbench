@@ -1,0 +1,32 @@
+{
+  "model": "resnet50",
+  "batch": 1,
+  "precision": "fp32",
+  "precision_label": "fp32",
+  "engine": "fp32.plan",
+  "onnx": "fp32.onnx",
+  "flops": 8178368512,
+  "bytes_lower_bound": 102728000,
+  "inputs": {
+    "x": "input_x.bin"
+  },
+  "reference_outputs": {
+    "logits": "ref_logits.bin"
+  },
+  "eval_inputs": {
+    "x": "../eval_x.bin"
+  },
+  "eval_count": 992,
+  "export": {
+    "exporter": "torchscript",
+    "torch": "2.11.0+cu130",
+    "opset": "19",
+    "constant_folded": "onnx-graphsurgeon"
+  },
+  "variant": {
+    "how": "exported graph, constant-folded"
+  },
+  "trt_version": "11.4.0.106",
+  "build_seconds": 17.4,
+  "layers_in_network": 126
+}

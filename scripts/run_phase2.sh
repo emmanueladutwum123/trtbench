@@ -3,7 +3,7 @@
 # TensorRT engines, time TensorRT (with and without CUDA graphs), PyTorch eager
 # and ONNX Runtime, score accuracy, and write the tables.
 #
-#   ./scripts/run_phase2.sh                  # LOCK_MHZ=1005 MODE=latency by default
+#   ./scripts/run_phase2.sh                  # LOCK_MHZ=495 MODE=latency by default
 #   LOCK_MHZ=0 ./scripts/run_phase2.sh       # do not lock clocks
 #
 # Resumable: every step skips outputs that already exist under $WORK, so an
@@ -11,7 +11,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-LOCK_MHZ=${LOCK_MHZ:-1005}   # below the T4's observed 1170-1260 MHz under load
+# The lock is a ceiling, not a floor: the 70 W power cap still pulls the clock
+# down. In the first T4 run, locked at 1005 MHz, heavy FP32 workloads sagged to
+# 570-765 MHz and 23 of 54 timings were rejected for clock drift. 495 MHz sits
+# below the lowest clock the cap imposed on any workload in that run.
+LOCK_MHZ=${LOCK_MHZ:-495}
 MODE=${MODE:-latency}
 WORK=${WORK:-work}
 export PYTHONPATH=python
@@ -34,7 +38,10 @@ cmake -S . -B build-gpu -DCMAKE_BUILD_TYPE=Release -DTB_ENABLE_CUDA=ON -DTB_ENAB
 cmake --build build-gpu -j
 
 gpu=$(nvidia-smi --query-gpu=name --format=csv,noheader -i 0 | head -1 | tr ' ' '_' | tr -cd '[:alnum:]_-')
-out="results/${gpu}-$(date -u +%Y%m%d)/phase2"
+# One directory per lock setting: timings at different clocks never mix, and
+# a rerun at a new clock does not reuse samples from the old one.
+if [ "$LOCK_MHZ" != 0 ]; then tag="lock${LOCK_MHZ}"; else tag="unlocked"; fi
+out="results/${gpu}-$(date -u +%Y%m%d)/phase2-${tag}"
 mkdir -p "$out"
 
 echo "===== prepare (export, FP16, INT8, references) ====="

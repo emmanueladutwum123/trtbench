@@ -1,0 +1,36 @@
+{
+  "model": "bert_base",
+  "batch": 1,
+  "precision": "int8",
+  "precision_label": "int8",
+  "engine": "int8.plan",
+  "onnx": "int8.onnx",
+  "flops": 22347251712,
+  "bytes_lower_bound": 86663564,
+  "inputs": {
+    "input_ids": "input_input_ids.bin",
+    "attention_mask": "input_attention_mask.bin"
+  },
+  "reference_outputs": {
+    "hidden": "ref_hidden.bin"
+  },
+  "eval_inputs": {
+    "input_ids": "../eval_input_ids.bin",
+    "attention_mask": "../eval_attention_mask.bin"
+  },
+  "eval_count": 256,
+  "export": {
+    "exporter": "torchscript",
+    "torch": "2.11.0+cu130",
+    "opset": "19",
+    "constant_folded": "onnx-graphsurgeon"
+  },
+  "variant": {
+    "how": "modelopt.onnx.quantization int8, entropy calibration, high_precision_dtype=fp16",
+    "calibration": "512 WikiText-2 train windows of [CLS] + 126 tokens + [SEP]",
+    "calibration_samples": 512
+  },
+  "trt_version": "11.4.0.106",
+  "build_seconds": 18.8,
+  "layers_in_network": 2091
+}

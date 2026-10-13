@@ -1,0 +1,34 @@
+{
+  "model": "bert_base",
+  "batch": 1,
+  "precision": "fp32",
+  "precision_label": "fp32",
+  "engine": "fp32.plan",
+  "onnx": "fp32.onnx",
+  "flops": 22347251712,
+  "bytes_lower_bound": 341801760,
+  "inputs": {
+    "input_ids": "input_input_ids.bin",
+    "attention_mask": "input_attention_mask.bin"
+  },
+  "reference_outputs": {
+    "hidden": "ref_hidden.bin"
+  },
+  "eval_inputs": {
+    "input_ids": "../eval_input_ids.bin",
+    "attention_mask": "../eval_attention_mask.bin"
+  },
+  "eval_count": 256,
+  "export": {
+    "exporter": "torchscript",
+    "torch": "2.11.0+cu130",
+    "opset": "19",
+    "constant_folded": "onnx-graphsurgeon"
+  },
+  "variant": {
+    "how": "exported graph, constant-folded"
+  },
+  "trt_version": "11.4.0.106",
+  "build_seconds": 9.1,
+  "layers_in_network": 939
+}

@@ -1,0 +1,32 @@
+{
+  "model": "gpt2",
+  "batch": 1,
+  "precision": "fp16",
+  "precision_label": "fp16",
+  "engine": "fp16.plan",
+  "onnx": "fp16.onnx",
+  "flops": 32228179968,
+  "bytes_lower_bound": 280378586,
+  "inputs": {
+    "input_ids": "input_input_ids.bin"
+  },
+  "reference_outputs": {
+    "logits": "ref_logits.bin"
+  },
+  "eval_inputs": {
+    "input_ids": "../eval_input_ids.bin"
+  },
+  "eval_count": 32,
+  "export": {
+    "exporter": "dynamo",
+    "torch": "2.11.0+cu130",
+    "opset": "19",
+    "constant_folded": "onnx-graphsurgeon"
+  },
+  "variant": {
+    "how": "modelopt.onnx.autocast fp16, keep_io_types=True, ranges from 1 real calibration samples"
+  },
+  "trt_version": "11.4.0.106",
+  "build_seconds": 42.2,
+  "layers_in_network": 1022
+}

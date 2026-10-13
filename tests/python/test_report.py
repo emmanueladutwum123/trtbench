@@ -49,6 +49,13 @@ def test_committed_t4_results_render(tmp_path: Path):
         out = render(json.loads((root / name).read_text()))
         assert "Tesla T4" in out
 
+    from trtbench.report import phase2_tables
+
+    p2 = root / "phase2-lock1005"
+    t = phase2_tables(json.loads((p2 / "phase2_latency.json").read_text()),
+                      json.loads((p2 / "accuracy.json").read_text()))
+    assert t.count("**rejected**") == 31
+
 
 def _p2(backend, precision, p50, trust=True, model="resnet50", batch=1):
     r = _full(_result(name=f"{backend}/{model}_b{batch}/{precision}", p50=p50, p90=p50 * 1.01,

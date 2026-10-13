@@ -20,11 +20,14 @@ from typing import Dict, List
 
 import numpy as np
 
-from . import accuracy, models
+from . import accuracy, int8_recipe, models
 
 # Bump when prepare's output changes meaning, so a resumed run redoes stale
-# variants. 2: AutoCast ranges come from real inputs, not random ones.
-PREPARE_VERSION = 2
+# variants. The value is the version each variant was last changed in.
+#   2: FP16 AutoCast ranges come from real inputs, not random ones.
+#   3: transformer INT8 uses SmoothQuant and keeps sensitive ops FP16.
+PREPARE_VERSION = 3
+VARIANT_SINCE = {"fp32": 1, "fp16": 2, "int8": 3}
 
 # --------------------------------------------------------------------------- io
 
@@ -98,17 +101,28 @@ def prepare(work: Path, names: List[str], cache: Path) -> None:
             bdir = mdir / f"b{batch}"
             bdir.mkdir(exist_ok=True)
             done = bdir / "prepare.json"
-            if done.exists() and json.loads(done.read_text()).get("version") == PREPARE_VERSION:
+            prev = json.loads(done.read_text()) if done.exists() else {}
+            if prev.get("version") == PREPARE_VERSION:
                 print(f"[prepare] {name} b{batch}: exists")
                 continue
-            print(f"[prepare] {name} b{batch}: export", flush=True)
-            export = models.export_onnx(spec, batch, bdir / "fp32.onnx")
+            # Redo only the variants that changed since this directory was prepared.
+            for prec, since in VARIANT_SINCE.items():
+                if prev.get("version", 0) < since:
+                    (bdir / f"{prec}.onnx").unlink(missing_ok=True)
 
-            print(f"[prepare] {name} b{batch}: FP16 (ModelOpt AutoCast)", flush=True)
-            _modelopt_child("fp16", bdir, calib_path, batch)
-            print(f"[prepare] {name} b{batch}: INT8 (ModelOpt PTQ, entropy, "
-                  f"{data.N_CALIB} samples)", flush=True)
-            _modelopt_child("int8", bdir, calib_path, batch)
+            if (bdir / "fp32.onnx").exists() and "export" in prev:
+                export = prev["export"]
+            else:
+                print(f"[prepare] {name} b{batch}: export", flush=True)
+                export = models.export_onnx(spec, batch, bdir / "fp32.onnx")
+            if not (bdir / "fp16.onnx").exists():
+                print(f"[prepare] {name} b{batch}: FP16 (ModelOpt AutoCast)", flush=True)
+                _modelopt_child("fp16", bdir, calib_path, batch)
+            if not (bdir / "int8.onnx").exists():
+                print(f"[prepare] {name} b{batch}: INT8 ({int8_recipe.RECIPES[name]}, "
+                      f"{data.N_CALIB} calibration samples)", flush=True)
+                _modelopt_child("int8", bdir, calib_path, batch)
+            int8_info = json.loads((bdir / "int8.recipe.json").read_text())
 
             for prec in ("fp32", "fp16", "int8"):
                 st = graph_stats(onnx.load(str(bdir / f"{prec}.onnx")))
@@ -135,8 +149,7 @@ def prepare(work: Path, names: List[str], cache: Path) -> None:
                     "fp32": {"how": "exported graph, constant-folded"},
                     "fp16": {"how": "modelopt.onnx.autocast fp16, keep_io_types=True, "
                                     f"ranges from {batch} real calibration samples"},
-                    "int8": {"how": "modelopt.onnx.quantization int8, entropy calibration, "
-                                    "high_precision_dtype=fp16",
+                    "int8": {"how": int8_recipe.describe(name), **int8_info,
                              "calibration": data.CALIBRATION_SET[name],
                              "calibration_samples": data.N_CALIB},
                 },
@@ -178,11 +191,10 @@ def _modelopt(kind: str, bdir: Path, calib_path: Path, batch: int) -> None:
         onnx.save(model, str(bdir / "fp16.onnx"))
         one.unlink()
     else:
-        from modelopt.onnx.quantization import quantize
-
-        quantize(onnx_path=src, quantize_mode="int8", calibration_data=calib,
-                 calibration_method="entropy", calibration_eps=["cuda:0", "cpu"],
-                 high_precision_dtype="fp16", output_path=str(bdir / "int8.onnx"))
+        model = bdir.parent.name
+        info = int8_recipe.quantize_int8(model, src, str(bdir / "int8.onnx"), calib, batch,
+                                         eps=["cuda:0", "cpu"])
+        (bdir / "int8.recipe.json").write_text(json.dumps(info, indent=2))
 
 
 # --------------------------------------------------------------------------- baselines
