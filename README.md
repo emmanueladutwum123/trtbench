@@ -14,7 +14,7 @@ inconsistent** instead of printing them.
 |---|---|---|
 | 1 | Measurement core: event timing, warmup/steady state, clocks, roofline, JSON | **Done.** Run on a Tesla T4 (results below) |
 | 5 | Trap suite: deliberately wrong benchmarks the harness must reject (`--self-test`) | **Done.** 12/12 traps pass on a Tesla T4; synthetic layer and SASS check run in CI |
-| 2 | TensorRT FP32/FP16/INT8 vs PyTorch eager vs ONNX Runtime; CUDA Graphs | Planned |
+| 2 | TensorRT FP32/FP16/INT8 vs PyTorch eager vs ONNX Runtime; CUDA Graphs | **Pipeline built; TensorRT code compiles against TensorRT 11.4 in CI. Not yet run on a GPU.** |
 | 3 | Per-layer attribution (IProfiler), fusion diff vs ONNX, roofline classification | Planned |
 | 4 | Fused LayerNorm + residual kernel, naive vs optimized, Nsight Compute | Planned |
 
@@ -243,6 +243,73 @@ When a comparison involves two precisions (for example FP32 against FP16), it
 is refused unless an accuracy delta is supplied with it. A faster
 lower-precision engine is only reported next to what it cost in accuracy.
 
+## Phase 2: TensorRT against PyTorch and ONNX Runtime
+
+`scripts/run_phase2.sh` runs the whole comparison and can resume after an
+interruption. No results yet; this section describes the method.
+
+**Models and shapes**, identical for every backend:
+
+| Model | Batch sizes | Input | Accuracy metric (evaluation set) |
+|---|---|---|---|
+| ResNet-50 (torchvision IMAGENET1K_V2) | 1, 16 | 3×224×224 | top-1 over all 1000 classes, 992 Imagenette val images |
+| BERT-base-uncased encoder | 1, 8 | 128 tokens | cosine similarity of hidden states with FP32 PyTorch, 256 WikiText-2 test windows |
+| GPT-2 124M, prefill | 1, 4 | 128 tokens | perplexity, 32 WikiText-2 test windows (4,064 predicted tokens) |
+
+**Backends**:
+- PyTorch eager at FP32 and FP16;
+- ONNX Runtime with the CUDA execution provider at FP32;
+- TensorRT 11.4 at FP32, FP16 and INT8, each also replayed from a captured
+  CUDA graph.
+
+**How precision is set.** In TensorRT 11, networks are always strongly
+typed, so precision comes from the ONNX graph itself; builder flags and the
+implicit INT8 calibrator are gone.
+- **FP32**: the exported graph. TF32 is disabled, which changes nothing on
+  Turing but keeps "FP32" honest on newer GPUs.
+- **FP16**: ModelOpt AutoCast, with FP32 network inputs and outputs.
+- **INT8**: ModelOpt post-training quantization. It inserts explicit Q/DQ on
+  every Conv, Gemm and MatMul, calibrated with entropy calibration. Other
+  ops run in FP16.
+
+**INT8 calibration set**: 512 samples per model, taken from the *training*
+split, so they never overlap the evaluation set.
+- ResNet-50: 512 Imagenette-320 train images.
+- BERT: 512 WikiText-2 train windows of `[CLS]` + 126 tokens + `[SEP]`.
+- GPT-2: 512 WikiText-2 train windows of 128 tokens.
+
+**One audit for every backend.**
+- TensorRT engines are timed by the C++ runner.
+- PyTorch and ONNX Runtime are timed by `python/trtbench/pyrunner.py`, a
+  line-for-line port of the same per-sample protocol. Their raw samples go
+  through `trtbench --ingest`, so they are audited against the same
+  calibration, peaks and launch floor as the engines, in the same process.
+- One clock lock covers every timing process.
+- Each process loads only one CUDA runtime. Engine building and execution
+  never share a process with PyTorch.
+
+**What "bytes" means here.** It is a lower bound on DRAM traffic per
+inference: weights at the precision they are stored in, plus inputs and
+outputs.
+- Embedding tables count only the rows a Gather actually reads.
+- INT8-quantized weights count as one byte each.
+
+Achieved bandwidth from this figure is therefore also a lower bound, which is
+the safe direction for the impossibility check. FLOPs count Conv, Gemm and
+MatMul. Checked against known figures: ResNet-50 8.18 GFLOPs and 25.5M
+parameters; BERT-base at 128 tokens 22.3 GFLOPs; GPT-2 at 128 tokens 32.2
+GFLOPs and 123.8M parameters.
+
+**Speedups require accuracy.** Every speedup in the tables is relative to
+PyTorch eager FP32 at the same model and batch size. A speedup at a
+different precision is printed only next to its measured accuracy change.
+Without one, the table says "refused".
+
+**Correctness check versus accuracy.** Every timed run checks its own output.
+Outputs must be finite and have cosine similarity of at least 0.99 with the
+FP32 PyTorch output on the same input. That catches broken bindings or
+engines; it is not an accuracy measurement.
+
 ## The trap suite (`--self-test`)
 
 A harness that never sees a wrong measurement has not shown it can catch
@@ -387,6 +454,16 @@ results/                committed raw JSON from real runs
   latency mode.
 - **T4 on the GPU uses scripted clock readings.** T4r changes the real
   clock; it needs root, which Colab allowed.
+- **Phase 2 scope.**
+  - GPT-2 is measured as a single 128-token prefill. Token-by-token decoding
+    with a KV cache is a different workload and is not measured.
+  - BERT has no task head, so its accuracy figure is fidelity to FP32, not
+    task accuracy.
+  - GPT-2 perplexity uses 4,064 tokens. That is enough to compare variants
+    scored on the same tokens, but not a benchmark perplexity.
+  - ONNX Runtime is measured at FP32 only.
+  - Host-side numbers for PyTorch and ONNX Runtime include the Python
+    interpreter. They are reported separately from device time.
 - Not tested: multi-GPU, MIG, MPS, distributed inference, or concurrent
   workloads sharing the GPU.
 
