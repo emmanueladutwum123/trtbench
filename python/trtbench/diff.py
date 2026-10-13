@@ -48,8 +48,11 @@ def _spread(r: Dict[str, Any]) -> float:
     return (d["p90"] - d["p50"]) / d["p50"] if d["p50"] > 0 else float("inf")
 
 
-def compare_results(base: Dict[str, Any], cand: Dict[str, Any]) -> Row:
-    """Same rules as the C++ compare(): trust, mode and precision gate the number."""
+def compare_results(base: Dict[str, Any], cand: Dict[str, Any],
+                    accuracy: Optional[Dict[str, Any]] = None) -> Row:
+    """Same rules as the C++ compare(): trust, mode and precision gate the
+    number. `accuracy` ({"metric", "baseline", "candidate"}) is required when
+    the precisions differ."""
     name = base["name"]
     if not base["trustworthy"] or not cand["trustworthy"]:
         side = "baseline" if not base["trustworthy"] else "candidate"
@@ -57,7 +60,7 @@ def compare_results(base: Dict[str, Any], cand: Dict[str, Any]) -> Row:
     if base["config"]["mode"] != cand["config"]["mode"]:
         return Row(name, "refused",
                    f"modes differ ({base['config']['mode']} vs {cand['config']['mode']})")
-    if base["precision"] != cand["precision"]:
+    if base["precision"] != cand["precision"] and accuracy is None:
         return Row(name, "refused",
                    f"precisions differ ({base['precision']} vs {cand['precision']}) "
                    "and reports carry no accuracy delta")

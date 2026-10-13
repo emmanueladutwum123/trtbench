@@ -134,6 +134,7 @@ Result run(Workload& w, const BenchConfig& cfg, DeviceContext& ctx, ClockSource&
 
   FinalizeInput in;
   in.name = w.name();
+  in.labels = w.labels();
   in.precision = w.precision();
   in.config = cfg;
   in.bytes = w.bytes_moved();

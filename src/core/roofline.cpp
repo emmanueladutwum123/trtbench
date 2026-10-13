@@ -18,13 +18,13 @@ ArchInfo arch_info(int major, int minor) {
   //   sm_70 1024, sm_75 1024, sm_80 2048, sm_86 1024, sm_89 1024, sm_90 4096.
   const int cc = major * 10 + minor;
   switch (cc) {
-    case 70: return {true, 64, 1024};
-    case 75: return {true, 64, 1024};
-    case 80: return {true, 64, 2048};
-    case 86: return {true, 128, 1024};
-    case 87: return {true, 128, 1024};
-    case 89: return {true, 128, 1024};
-    case 90: return {true, 128, 4096};
+    case 70: return {true, 64, 1024, 0};
+    case 75: return {true, 64, 1024, 2048};
+    case 80: return {true, 64, 2048, 4096};
+    case 86: return {true, 128, 1024, 2048};
+    case 87: return {true, 128, 1024, 2048};
+    case 89: return {true, 128, 1024, 2048};
+    case 90: return {true, 128, 4096, 8192};
     default: return {};
   }
 }
@@ -43,6 +43,7 @@ DevicePeaks theoretical_peaks(int major, int minor, int sm_count,
     const double clk_ghz = peak_sm_clock_mhz / 1e3;
     p.fp32_gflops = sm_count * a.fp32_lanes_per_sm * 2.0 * clk_ghz;  // FMA = 2 FLOP
     p.fp16_tc_gflops = sm_count * a.fp16_tc_flops_per_clk_per_sm * clk_ghz;
+    p.int8_tc_gops = sm_count * a.int8_tc_ops_per_clk_per_sm * clk_ghz;
     p.source = "arch table sm_" + std::to_string(major) + std::to_string(minor) +
                " x " + std::to_string(sm_count) + " SMs @ " +
                std::to_string(peak_sm_clock_mhz) + " MHz; DRAM = 2 x mem clock x bus width";
@@ -59,7 +60,7 @@ double compute_peak_gflops(const DevicePeaks& peaks, Precision prec, unsigned ru
     case Precision::FP32: at_peak = peaks.fp32_gflops; break;
     case Precision::FP16:
     case Precision::BF16: at_peak = peaks.fp16_tc_gflops; break;
-    case Precision::INT8:
+    case Precision::INT8: at_peak = peaks.int8_tc_gops; break;
     case Precision::Mixed: return 0;
   }
   if (run_sm_mhz == 0 || peaks.peak_sm_clock_mhz == 0) return at_peak;

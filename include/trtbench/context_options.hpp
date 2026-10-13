@@ -14,6 +14,10 @@ struct ContextOptions {
   // under a power cap. Pick a clock at or below the minimum an unlocked run
   // observed under load (clocks.sm_mhz.min in its JSON).
   unsigned lock_mhz = 0;
+  // The clock was locked by the caller (a script that also runs other
+  // processes under the same lock). Recorded in every result; the drift check
+  // still verifies the clocks actually held.
+  unsigned external_lock_mhz = 0;
   bool calibrate = true;   // measure launch floors and the copy-bandwidth peak
 };
 

@@ -84,6 +84,12 @@ std::unique_ptr<DeviceContext> DeviceContext::create(const ContextOptions& o) {
     if (khz > 0) c->env_.max_sm_clock_mhz = khz / 1000;
   }
 
+  if (o.external_lock_mhz > 0) {
+    if (o.lock_clocks) throw std::invalid_argument("--lock-clocks and an external lock are exclusive");
+    c->external_lock_mhz_ = o.external_lock_mhz;
+    c->lock_status_ = "locked externally at " + std::to_string(o.external_lock_mhz) +
+                      " MHz (by the calling script, not this process)";
+  }
   if (o.lock_clocks) {
     c->lock_ = std::make_unique<ClockLock>(c->nvml_index_, o.lock_mhz);
     c->lock_status_ = c->lock_->status();

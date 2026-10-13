@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 project(trtbench VERSION 0.1.0 LANGUAGES CXX)
 
 option(TB_ENABLE_CUDA "Build the CUDA timing runner, built-in workloads and CLI" OFF)
+option(TB_ENABLE_TENSORRT "Build the TensorRT engine workload (needs TB_ENABLE_CUDA)" OFF)
 option(TB_BUILD_TESTS "Build unit tests" ON)
 option(TB_WARNINGS_AS_ERRORS "Treat host compiler warnings as errors" ON)
 
@@ -77,6 +78,23 @@ if(TB_ENABLE_CUDA)
   target_compile_options(trtbench_cuda PRIVATE
     $<$<COMPILE_LANGUAGE:CXX>:${TB_HOST_WARNINGS}>
     $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-Wall,-Wextra --Werror=all-warnings -lineinfo>)
+
+  if(TB_ENABLE_TENSORRT)
+    # Headers and library are located explicitly: the pip wheel ships
+    # libnvinfer.so.<major> with no unversioned symlink and no headers
+    # (scripts/setup_tensorrt.sh fetches matching headers).
+    find_path(TENSORRT_INCLUDE_DIR NvInfer.h HINTS ${TENSORRT_ROOT}/include ENV TENSORRT_INCLUDE_DIR)
+    find_library(TENSORRT_LIBRARY NAMES nvinfer libnvinfer.so.11 libnvinfer.so.10
+                 HINTS ${TENSORRT_ROOT}/lib ENV TENSORRT_LIB_DIR)
+    if(NOT TENSORRT_INCLUDE_DIR OR NOT TENSORRT_LIBRARY)
+      message(FATAL_ERROR "TensorRT not found: set TENSORRT_INCLUDE_DIR and TENSORRT_LIBRARY")
+    endif()
+    message(STATUS "TensorRT: ${TENSORRT_INCLUDE_DIR}, ${TENSORRT_LIBRARY}")
+    add_library(trtbench_trt src/trt/engine_workload.cpp)
+    target_include_directories(trtbench_trt SYSTEM PUBLIC ${TENSORRT_INCLUDE_DIR})
+    target_link_libraries(trtbench_trt PUBLIC trtbench_cuda ${TENSORRT_LIBRARY})
+    target_compile_options(trtbench_trt PRIVATE ${TB_HOST_WARNINGS})
+  endif()
 endif()
 
 # The CLI builds either way. Without CUDA only --self-test is available, and
@@ -86,6 +104,10 @@ target_compile_options(trtbench PRIVATE ${TB_HOST_WARNINGS})
 if(TB_ENABLE_CUDA)
   target_link_libraries(trtbench PRIVATE trtbench_cuda)
   target_compile_definitions(trtbench PRIVATE TRTBENCH_HAVE_CUDA=1)
+  if(TB_ENABLE_TENSORRT)
+    target_link_libraries(trtbench PRIVATE trtbench_trt)
+    target_compile_definitions(trtbench PRIVATE TRTBENCH_HAVE_TENSORRT=1)
+  endif()
 else()
   target_link_libraries(trtbench PRIVATE trtbench_core)
 endif()

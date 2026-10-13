@@ -54,6 +54,7 @@ json to_json(const DevicePeaks& p) {
           {"dram_gbps_measured", p.dram_gbps_measured},
           {"fp32_gflops", p.fp32_gflops},
           {"fp16_tc_gflops", p.fp16_tc_gflops},
+          {"int8_tc_gops", p.int8_tc_gops},
           {"peak_sm_clock_mhz", p.peak_sm_clock_mhz},
           {"source", p.source}};
 }
@@ -108,6 +109,7 @@ json to_json(const Result& r, bool include_samples) {
   }
   json j = {
       {"name", r.name},
+      {"labels", r.labels},
       {"precision", to_string(r.precision)},
       {"config", config(r.config, r.launches_per_sample)},
       {"bytes_per_launch", r.bytes_per_launch},
@@ -162,6 +164,86 @@ json to_json(const Comparison& c) {
     j["accuracy"] = nullptr;
   }
   return j;
+}
+
+Precision precision_from_string(const std::string& s) {
+  for (Precision p : {Precision::FP32, Precision::FP16, Precision::BF16, Precision::INT8,
+                      Precision::Mixed})
+    if (s == to_string(p)) return p;
+  throw std::invalid_argument("unknown precision '" + s + "'");
+}
+
+Mode mode_from_string(const std::string& s) {
+  if (s == "latency") return Mode::Latency;
+  if (s == "throughput") return Mode::Throughput;
+  throw std::invalid_argument("unknown mode '" + s + "'");
+}
+
+namespace {
+ClockSnapshot snapshot_from(const json& j) {
+  ClockSnapshot s;
+  s.t_ms = j.value("t_ms", 0.0);
+  s.sm_mhz = j.value("sm_mhz", 0u);
+  s.mem_mhz = j.value("mem_mhz", 0u);
+  s.throttle_reasons = j.value("throttle_reasons", std::uint64_t{0});
+  s.temp_c = j.value("temp_c", 0.0);
+  s.power_w = j.value("power_w", 0.0);
+  return s;
+}
+}  // namespace
+
+FinalizeInput samples_from_json(const json& j) {
+  try {
+    if (j.at("schema") != "trtbench-samples-1")
+      throw std::invalid_argument("unsupported schema " + j.at("schema").dump());
+    FinalizeInput in;
+    in.name = j.at("name").get<std::string>();
+    if (j.contains("labels")) in.labels = j.at("labels").get<std::map<std::string, std::string>>();
+    in.precision = precision_from_string(j.at("precision").get<std::string>());
+    const json& c = j.at("config");
+    in.config.mode = mode_from_string(c.at("mode").get<std::string>());
+    in.config.warmup_iters = c.at("warmup_iters").get<int>();
+    in.config.warmup_min_ms = c.at("warmup_min_ms").get<double>();
+    in.config.min_iters = c.at("min_iters").get<int>();
+    in.config.min_time_ms = c.at("min_time_ms").get<double>();
+    in.config.max_iters = c.at("max_iters").get<int>();
+    in.config.launches_per_sample = c.at("launches_per_sample").get<int>();
+    in.config.flush_l2 = c.value("flush_l2", false);
+    in.config.clock_sample_every = c.at("clock_sample_every").get<int>();
+    in.config.clock_drift_tol = c.at("clock_drift_tol").get<double>();
+    if (const std::string err = validate(in.config); !err.empty())
+      throw std::invalid_argument("config: " + err);
+    in.bytes = j.at("bytes").get<std::uint64_t>();
+    in.flops = j.at("flops").get<std::uint64_t>();
+
+    const json& r = j.at("raw");
+    in.raw.device_ms = r.at("device_ms").get<std::vector<double>>();
+    in.raw.host_enqueue_ms = r.at("host_enqueue_ms").get<std::vector<double>>();
+    in.raw.wall_ms = r.at("wall_ms").get<std::vector<double>>();
+    if (in.raw.host_enqueue_ms.size() != in.raw.device_ms.size() ||
+        in.raw.wall_ms.size() != in.raw.device_ms.size())
+      throw std::invalid_argument("raw sample arrays differ in length");
+    in.raw.first_device_ms = r.at("first_device_ms").get<double>();
+    in.raw.first_host_ms = r.at("first_host_ms").get<double>();
+    in.raw.first_wall_ms = r.at("first_wall_ms").get<double>();
+
+    const json& k = j.at("clocks");
+    std::vector<ClockSnapshot> steady;
+    for (const auto& s : k.at("steady")) steady.push_back(snapshot_from(s));
+    in.clocks = summarize_clocks(k.at("available").get<bool>(), k.at("source").get<std::string>(),
+                                 snapshot_from(k.at("pre_warmup")), std::move(steady));
+    in.clocks.locked = k.value("locked", false);
+    in.clocks.lock_status = k.value("lock_status", std::string("not requested"));
+
+    const json& ck = j.at("checksum");
+    in.checksum.verifiable = ck.at("verifiable").get<bool>();
+    in.checksum.passed = ck.at("passed").get<bool>();
+    in.checksum.value = ck.value("value", 0.0);
+    in.checksum.note = ck.value("note", "");
+    return in;
+  } catch (const json::exception& e) {
+    throw std::invalid_argument(std::string("malformed samples document: ") + e.what());
+  }
 }
 
 }  // namespace trtbench

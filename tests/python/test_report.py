@@ -48,3 +48,41 @@ def test_committed_t4_results_render(tmp_path: Path):
     for name in ("phase1_latency.json", "phase1_throughput.json", "self_test.json"):
         out = render(json.loads((root / name).read_text()))
         assert "Tesla T4" in out
+
+
+def _p2(backend, precision, p50, trust=True, model="resnet50", batch=1):
+    r = _full(_result(name=f"{backend}/{model}_b{batch}/{precision}", p50=p50, p90=p50 * 1.01,
+                      p99=p50 * 1.02, precision=precision, trustworthy=trust))
+    r["labels"] = {"backend": backend, "model": model, "batch": str(batch), "precision": precision}
+    r["host_enqueue_ms"] = {"p50": 0.02, "p90": 0.02, "p99": 0.03, "min": 0.01, "max": 0.04, "n": 300}
+    if not trust:
+        r["findings"] = [{"flag": "clock_drift", "severity": "invalid", "detail": ""}]
+    return r
+
+
+def test_phase2_speedups_carry_accuracy_and_refuse_without_it():
+    from trtbench.report import phase2_tables
+
+    rep = _report(_p2("torch_eager", "fp32", 6.0), _p2("tensorrt", "fp32", 3.0),
+                  _p2("tensorrt", "fp16", 1.5), _p2("tensorrt", "int8", 1.0),
+                  _p2("tensorrt+graph", "fp16", 1.4))
+    rep["results"][4]["name"] = "tensorrt/resnet50_b1/fp16+graph"
+    acc = {"torch_eager/resnet50_b1/fp32": {"metric": "top1_pct", "value": 88.0, "n": 992},
+           "tensorrt/resnet50_b1/fp32": {"metric": "top1_pct", "value": 88.0, "n": 992},
+           "tensorrt/resnet50_b1/fp16": {"metric": "top1_pct", "value": 87.9, "n": 992}}
+    t = phase2_tables(rep, acc)
+    lines = {l.split("|")[1].strip() + "/" + l.split("|")[2].strip(): l
+             for l in t.splitlines() if l.startswith("| ") and "Backend" not in l and "Model" not in l}
+    assert "2.00×" in lines["tensorrt/fp32"]                       # same precision: no delta needed
+    assert "4.00× (Δ top-1 % -0.1 pts)" in lines["tensorrt/fp16"]  # with its accuracy cost
+    assert "refused" in lines["tensorrt/int8"]                     # no INT8 accuracy -> no speedup
+    assert "1.400" in t and "-6.7%" in t                           # graph row and its delta
+
+
+def test_phase2_rejected_rows_have_no_numbers():
+    from trtbench.report import phase2_tables
+
+    rep = _report(_p2("torch_eager", "fp32", 6.0), _p2("tensorrt", "fp16", 1.5, trust=False))
+    t = phase2_tables(rep, {})
+    row = [l for l in t.splitlines() if l.startswith("| tensorrt")][0]
+    assert "**rejected**: clock_drift" in row and "1.500" not in row

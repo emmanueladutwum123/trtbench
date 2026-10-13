@@ -32,22 +32,30 @@ jobs:
           python-version: "3.12"
       - name: Python tests (reads the report the C++ tests wrote)
         run: |
-          pip install pytest
+          pip install pytest numpy "onnx~=1.21"
           TRTBENCH_SAMPLE_JSON=build/sample_report.json pytest -v
 
   cuda-compile:
     # No GPU on hosted runners. This job proves the device code and the CUDA
     # runner compile with nvcc, that the binaries start without a driver, and
     # that GPU tests skip rather than fail.
-    name: CUDA build, no GPU (skip path)
+    name: CUDA + TensorRT build, no GPU (skip path)
     runs-on: ubuntu-24.04
     container: nvidia/cuda:12.8.1-devel-ubuntu24.04
     steps:
       - name: Toolchain
-        run: apt-get update && apt-get install -y --no-install-recommends cmake git g++ ca-certificates
+        run: apt-get update && apt-get install -y --no-install-recommends cmake git g++ ca-certificates curl python3 python3-venv
       - uses: actions/checkout@v4
+      - name: TensorRT (pip libraries + headers from the matching GitHub tag)
+        run: |
+          python3 -m venv /opt/venv
+          . /opt/venv/bin/activate
+          scripts/setup_tensorrt.sh --libs | tee trt.env
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DTB_ENABLE_CUDA=ON
+        run: |
+          . /opt/venv/bin/activate && eval "$(cat trt.env)"
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DTB_ENABLE_CUDA=ON -DTB_ENABLE_TENSORRT=ON \
+            -DTENSORRT_INCLUDE_DIR="$TENSORRT_INCLUDE_DIR" -DTENSORRT_LIBRARY="$TENSORRT_LIBRARY"
       - name: Build
         run: cmake --build build -j
       - name: Tests (GPU tests must report SKIPPED)
@@ -56,7 +64,6 @@ jobs:
         run: ./build/trtbench --self-test
       - name: T1 dead-code elimination is real (SASS)
         run: |
-          apt-get install -y --no-install-recommends python3
           python3 scripts/check_dce_sass.py build/trtbench
       - name: CLI fails cleanly without a device
         run: |

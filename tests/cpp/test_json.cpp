@@ -64,3 +64,62 @@ TEST(Json, WriteSampleForPythonTests) {
   std::ifstream in(path);
   EXPECT_TRUE(in.good());
 }
+
+namespace {
+nlohmann::json samples_doc() {
+  nlohmann::json snap = {{"t_ms", 0}, {"sm_mhz", 1200}, {"mem_mhz", 5000},
+                         {"throttle_reasons", throttle::kSwPowerCap}, {"temp_c", 60}, {"power_w", 69}};
+  std::vector<double> dev(150, 1.0), host(150, 0.05), wall(150, 1.02);
+  return {{"schema", "trtbench-samples-1"},
+          {"name", "torch_eager/resnet50_b1/fp32"},
+          {"labels", {{"backend", "torch_eager"}, {"model", "resnet50"}}},
+          {"precision", "fp32"},
+          {"config", {{"mode", "latency"}, {"warmup_iters", 50}, {"warmup_min_ms", 250},
+                      {"min_iters", 150}, {"min_time_ms", 100}, {"max_iters", 100000},
+                      {"launches_per_sample", 1}, {"clock_sample_every", 25},
+                      {"clock_drift_tol", 0.05}}},
+          {"bytes", 102'000'000},
+          {"flops", 8'200'000'000ull},
+          {"raw", {{"device_ms", dev}, {"host_enqueue_ms", host}, {"wall_ms", wall},
+                   {"first_device_ms", 30.0}, {"first_host_ms", 29.0}, {"first_wall_ms", 31.0}}},
+          {"clocks", {{"available", true}, {"source", "pynvml"}, {"pre_warmup", snap},
+                      {"steady", {snap, snap, snap}}}},
+          {"checksum", {{"verifiable", true}, {"passed", true}, {"note", "top-1 matches"}}}};
+}
+}  // namespace
+
+TEST(Ingest, PythonSamplesGoThroughTheSameAudit) {
+  FinalizeInput in = samples_from_json(samples_doc());
+  in.peaks = trtbench::testing::l4_peaks();
+  const Result r = finalize(std::move(in));
+  EXPECT_EQ(r.name, "torch_eager/resnet50_b1/fp32");
+  EXPECT_EQ(r.labels.at("backend"), "torch_eager");
+  EXPECT_EQ(r.device_ms.n, 150u);
+  EXPECT_TRUE(r.has(Flag::PowerCapThrottle));
+  EXPECT_TRUE(r.has(Flag::FirstCallOutlier));
+  EXPECT_TRUE(r.trustworthy());
+}
+
+TEST(Ingest, ImpossibleIngestedSamplesAreRejected) {
+  auto doc = samples_doc();
+  doc["raw"]["device_ms"] = std::vector<double>(150, 0.001);  // 102 MB in 1 us
+  doc["raw"]["wall_ms"] = std::vector<double>(150, 0.002);
+  FinalizeInput in = samples_from_json(doc);
+  in.peaks = trtbench::testing::l4_peaks();
+  EXPECT_TRUE(finalize(std::move(in)).has(Flag::ImpossibleBandwidth));
+}
+
+TEST(Ingest, MalformedDocumentsAreRejected) {
+  auto doc = samples_doc();
+  doc["schema"] = "something-else";
+  EXPECT_THROW(samples_from_json(doc), std::invalid_argument);
+  doc = samples_doc();
+  doc["raw"]["wall_ms"] = std::vector<double>(3, 1.0);
+  EXPECT_THROW(samples_from_json(doc), std::invalid_argument);
+  doc = samples_doc();
+  doc["precision"] = "fp8";
+  EXPECT_THROW(samples_from_json(doc), std::invalid_argument);
+  doc = samples_doc();
+  doc.erase("flops");
+  EXPECT_THROW(samples_from_json(doc), std::invalid_argument);
+}

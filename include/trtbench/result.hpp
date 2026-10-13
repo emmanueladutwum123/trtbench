@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -42,6 +43,9 @@ struct Environment {
 
 struct Result {
   std::string name;
+  // Free-form identification for tables, e.g. model=resnet50, backend=tensorrt,
+  // batch=16. Never used by the audit.
+  std::map<std::string, std::string> labels;
   Precision precision = Precision::FP32;
   BenchConfig config;
   int launches_per_sample = 1;
@@ -71,6 +75,7 @@ struct Result {
 
 struct FinalizeInput {
   std::string name;
+  std::map<std::string, std::string> labels;
   Precision precision = Precision::FP32;
   BenchConfig config;
   std::uint64_t bytes = 0;

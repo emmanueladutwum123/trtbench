@@ -1,0 +1,9 @@
+# Phase 2 Python dependencies, on top of PyTorch + torchvision (preinstalled on
+# Colab; not listed so pip does not replace the platform's CUDA build).
+# ModelOpt's ONNX extra pins onnxruntime-gpu (~1.24 on Linux), onnx and
+# onnx-graphsurgeon; installing onnxruntime separately would conflict.
+nvidia-modelopt[onnx]==0.47.0
+transformers
+datasets
+nvidia-ml-py
+pillow

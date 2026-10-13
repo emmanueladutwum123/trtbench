@@ -25,6 +25,9 @@
 #include "trtbench/cuda/runner.hpp"
 #include "trtbench/cuda/traps_gpu.hpp"
 #endif
+#ifdef TRTBENCH_HAVE_TENSORRT
+#include "trtbench/trt/engine_workload.hpp"
+#endif
 
 using namespace trtbench;
 
@@ -37,9 +40,22 @@ Self-test:
                       harness must reject. GPU traps skip without a device.
 
 Workloads:
-  --op NAME           empty | copy | fma | all   (default: all)
+  --op NAME           empty | copy | fma | all | none
+                      (default: all, or none when --engine/--ingest is given)
   --copy-mib N        copy size in MiB            (default: max(256, 16 x L2))
   --fma-iters N       FMA loop iterations         (default: 16384)
+
+TensorRT (builds with -DTB_ENABLE_TENSORRT=ON):
+  --engine META       time the engine described by META (engines.py writes
+                      it); repeatable
+  --cuda-graph        also time each engine replayed from a captured CUDA graph
+  --engine-eval META  run the engine over its evaluation set and write the
+                      outputs to --eval-out (accuracy support; untimed)
+  --eval-out PATH
+
+Baselines timed outside this binary:
+  --ingest SAMPLES    audit samples written by python/trtbench/pyrunner.py
+                      against this process's calibration; repeatable
 
 Measurement:
   --mode M            latency | throughput        (default: latency)
@@ -58,6 +74,10 @@ Device:
                       degrades to drift detection when not permitted. Choose
                       a clock the GPU sustains under load: at or below
                       clocks.sm_mhz.min from an unlocked run's JSON.
+  --clocks-locked-externally=MHZ
+                      the caller already locked the SM clock (run_phase2.sh
+                      locks it once for every process); recorded, and still
+                      checked by the drift audit
   --no-calibrate      skip launch-floor and copy-peak calibration
 
 Output:
@@ -75,6 +95,12 @@ struct Args {
   std::string json_path;
   bool samples = true;
   bool self_test = false;
+  bool op_given = false;
+  std::vector<std::string> engines;
+  bool cuda_graph = false;
+  std::vector<std::string> ingest;
+  std::string engine_eval;
+  std::string eval_out;
 };
 
 [[noreturn]] void usage_error(const std::string& msg) {
@@ -111,6 +137,20 @@ Args parse(int argc, char** argv) {
       a.self_test = true;
     } else if (f == "--op") {
       a.op = next();
+      a.op_given = true;
+    } else if (f == "--engine") {
+      a.engines.push_back(next());
+    } else if (f == "--cuda-graph") {
+      a.cuda_graph = true;
+    } else if (f == "--engine-eval") {
+      a.engine_eval = next();
+    } else if (f == "--eval-out") {
+      a.eval_out = next();
+    } else if (f == "--ingest") {
+      a.ingest.push_back(next());
+    } else if (f.rfind("--clocks-locked-externally=", 0) == 0) {
+      a.ctx.external_lock_mhz = static_cast<unsigned>(
+          to_long(f, f.c_str() + std::strlen("--clocks-locked-externally=")));
     } else if (f == "--copy-mib") {
       a.copy_mib = static_cast<std::size_t>(to_long(f, next()));
     } else if (f == "--fma-iters") {
@@ -154,8 +194,14 @@ Args parse(int argc, char** argv) {
     }
   }
   if (const std::string e = validate(a.cfg); !e.empty()) usage_error(e);
-  if (a.op != "all" && a.op != "empty" && a.op != "copy" && a.op != "fma")
+  if (!a.op_given && (!a.engines.empty() || !a.ingest.empty())) a.op = "none";
+  if (a.op != "all" && a.op != "empty" && a.op != "copy" && a.op != "fma" && a.op != "none")
     usage_error("unknown op '" + a.op + "'");
+  if (!a.engine_eval.empty() && a.eval_out.empty()) usage_error("--engine-eval needs --eval-out");
+#ifndef TRTBENCH_HAVE_TENSORRT
+  if (!a.engines.empty() || !a.engine_eval.empty())
+    usage_error("this build has no TensorRT support (configure with -DTB_ENABLE_TENSORRT=ON)");
+#endif
   return a;
 }
 
@@ -264,6 +310,13 @@ int main(int argc, char** argv) {
   return 2;
 #else
   try {
+#ifdef TRTBENCH_HAVE_TENSORRT
+    if (!a.engine_eval.empty()) {
+      const std::size_t n = trt::evaluate_engine(a.engine_eval, a.eval_out);
+      std::printf("wrote %zu evaluation outputs to %s\n", n, a.eval_out.c_str());
+      return 0;
+    }
+#endif
     auto ctx = cuda::DeviceContext::create(a.ctx);
     if (a.ctx.lock_clocks) std::printf("Clock lock %s\n", ctx->lock_status().c_str());
 
@@ -277,9 +330,28 @@ int main(int argc, char** argv) {
       ws.push_back(cuda::make_copy(bytes));
     }
     if (a.op == "fma" || a.op == "all") ws.push_back(cuda::make_fma(a.fma_iters));
+#ifdef TRTBENCH_HAVE_TENSORRT
+    for (const auto& m : a.engines) {
+      ws.push_back(trt::make_engine_workload(m, false));
+      if (a.cuda_graph) ws.push_back(trt::make_engine_workload(m, true));
+    }
+#endif
 
     std::vector<Result> results;
-    for (auto& w : ws) results.push_back(cuda::run(*w, a.cfg, *ctx));
+    for (auto& w : ws) {
+      std::fprintf(stderr, "trtbench: timing %s\n", w->name().c_str());
+      results.push_back(cuda::run(*w, a.cfg, *ctx));
+      w.reset();  // free device memory before the next engine
+    }
+    for (const auto& path : a.ingest) {
+      std::ifstream f(path);
+      if (!f) throw std::runtime_error("cannot open " + path);
+      FinalizeInput in = samples_from_json(nlohmann::json::parse(f));
+      // Every backend is judged against this process's calibration.
+      in.peaks = ctx->peaks();
+      in.launch_floor_ms = ctx->launch_floor_ms(in.config.mode);
+      results.push_back(finalize(std::move(in)));
+    }
 
     const RunReport rep = ctx->make_report(std::move(results));
     print_env(rep);

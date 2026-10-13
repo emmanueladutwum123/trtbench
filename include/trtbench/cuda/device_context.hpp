@@ -36,9 +36,12 @@ class DeviceContext {
   std::size_t flush_bytes() const { return flush_bytes_; }
 
   ClockSource& clocks() { return *clocks_; }
-  bool clocks_locked() const { return lock_ && lock_->locked(); }
+  bool clocks_locked() const { return (lock_ && lock_->locked()) || external_lock_mhz_ > 0; }
   const std::string& lock_status() const { return lock_status_; }
-  unsigned locked_mhz() const { return clocks_locked() ? lock_->mhz() : 0; }
+  unsigned locked_mhz() const {
+    if (lock_ && lock_->locked()) return lock_->mhz();
+    return external_lock_mhz_;
+  }
   int nvml_index() const { return nvml_index_; }  // -1 without NVML
 
   const Environment& env() const { return env_; }
@@ -66,6 +69,7 @@ class DeviceContext {
   std::unique_ptr<ClockLock> lock_;
   std::string lock_status_ = "not requested";
   int nvml_index_ = -1;
+  unsigned external_lock_mhz_ = 0;
 
   Environment env_;
   DevicePeaks peaks_;

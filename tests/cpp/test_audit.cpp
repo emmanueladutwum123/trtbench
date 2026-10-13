@@ -70,7 +70,7 @@ TEST(Audit, FlopsAbovePeakIsImpossible) {
 
 TEST(Audit, FlopsCheckSkippedWhenPeakUnknown) {
   auto in = clean_copy();
-  in.precision = Precision::INT8;  // no INT8 peak yet
+  in.precision = Precision::Mixed;  // no peak for mixed precision
   in.flops = 1'000'000'000'000ull;
   EXPECT_FALSE(run(in).has(Flag::ImpossibleFlops));
 }

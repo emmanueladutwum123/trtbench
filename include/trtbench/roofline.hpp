@@ -19,6 +19,8 @@ struct ArchInfo {
   int fp32_lanes_per_sm = 0;            // FP32 FMA units per SM
   int fp16_tc_flops_per_clk_per_sm = 0; // dense FP16 tensor-core FLOP/clk, FP32 accumulate,
                                         // datacenter rate (GeForce parts are half this)
+  int int8_tc_ops_per_clk_per_sm = 0;   // dense INT8 tensor-core OP/clk (2x FP16 from sm_75;
+                                        // sm_70 has no INT8 tensor cores)
 };
 ArchInfo arch_info(int cc_major, int cc_minor);
 
@@ -27,6 +29,7 @@ struct DevicePeaks {
   double dram_gbps_measured = 0;     // large device-to-device copy, measured by this harness
   double fp32_gflops = 0;            // at peak_sm_clock_mhz
   double fp16_tc_gflops = 0;         // at peak_sm_clock_mhz
+  double int8_tc_gops = 0;           // at peak_sm_clock_mhz
   unsigned peak_sm_clock_mhz = 0;
   std::string source;
 
@@ -43,7 +46,8 @@ DevicePeaks theoretical_peaks(int cc_major, int cc_minor, int sm_count,
 // Compute peak relevant to an op of this precision, scaled to the SM clock
 // observed during the run (a GPU locked or throttled to 1500 MHz cannot reach
 // its 2040 MHz datasheet peak, and % of peak must not pretend otherwise).
-// Returns 0 when unknown (INT8 until Phase 2, unknown arch).
+// INT8 engines are judged against the INT8 tensor-core peak. Returns 0 when
+// unknown (Mixed precision, unknown arch).
 double compute_peak_gflops(const DevicePeaks& peaks, Precision p, unsigned run_sm_mhz);
 
 struct RooflinePoint {

@@ -31,6 +31,22 @@ TEST(TheoreticalPeaks, A10MatchesDatasheet) {
   EXPECT_NEAR(p.fp16_tc_gflops, 125000.0, 1250.0);
 }
 
+TEST(TheoreticalPeaks, T4MatchesDatasheet) {
+  // T4: 320 GB/s, 8.1 TFLOPS FP32, 65 TFLOPS FP16 tensor, 130 TOPS INT8.
+  // Inputs are what the harness read from a real T4 (results/Tesla_T4-20261013).
+  const auto p = theoretical_peaks(7, 5, 40, 1590, 5001000.0, 256);
+  EXPECT_NEAR(p.dram_gbps_theoretical, 320.0, 3.2);
+  EXPECT_NEAR(p.fp32_gflops, 8100.0, 81.0);
+  EXPECT_NEAR(p.fp16_tc_gflops, 65000.0, 650.0);
+  EXPECT_NEAR(p.int8_tc_gops, 130000.0, 1300.0);
+}
+
+TEST(TheoreticalPeaks, Int8IsTwiceFp16FromTuringAndAbsentOnVolta) {
+  EXPECT_DOUBLE_EQ(theoretical_peaks(8, 9, 58, 2040, 6251000.0, 192).int8_tc_gops,
+                   2 * theoretical_peaks(8, 9, 58, 2040, 6251000.0, 192).fp16_tc_gflops);
+  EXPECT_EQ(theoretical_peaks(7, 0, 80, 1530, 877000.0, 4096).int8_tc_gops, 0.0);
+}
+
 TEST(TheoreticalPeaks, UnknownArchHasNoComputePeak) {
   const auto p = theoretical_peaks(6, 1, 28, 1600, 5000000.0, 352);
   EXPECT_EQ(p.fp32_gflops, 0.0);
@@ -43,7 +59,8 @@ TEST(ComputePeak, ScalesToRunClock) {
   EXPECT_NEAR(compute_peak_gflops(p, Precision::FP32, 1020), p.fp32_gflops / 2, 1e-6);
   EXPECT_DOUBLE_EQ(compute_peak_gflops(p, Precision::FP32, 0), p.fp32_gflops);
   EXPECT_DOUBLE_EQ(compute_peak_gflops(p, Precision::FP16, 0), p.fp16_tc_gflops);
-  EXPECT_DOUBLE_EQ(compute_peak_gflops(p, Precision::INT8, 0), 0.0);
+  EXPECT_DOUBLE_EQ(compute_peak_gflops(p, Precision::INT8, 0), p.int8_tc_gops);
+  EXPECT_DOUBLE_EQ(compute_peak_gflops(p, Precision::Mixed, 0), 0.0);
 }
 
 TEST(Place, CopyIsMemoryBound) {

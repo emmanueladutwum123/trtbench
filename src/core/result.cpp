@@ -22,6 +22,7 @@ bool RunReport::all_trustworthy() const {
 Result finalize(FinalizeInput in, const AuditThresholds& th) {
   Result r;
   r.name = std::move(in.name);
+  r.labels = std::move(in.labels);
   r.precision = in.precision;
   r.config = in.config;
   r.launches_per_sample = in.config.mode == Mode::Latency ? 1 : in.config.launches_per_sample;

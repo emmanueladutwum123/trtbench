@@ -3,6 +3,7 @@
 #include <cuda_runtime_api.h>
 
 #include <cstdint>
+#include <map>
 #include <string>
 
 #include "trtbench/audit.hpp"
@@ -19,6 +20,8 @@ class Workload {
 
   virtual std::string name() const = 0;
   virtual Precision precision() const { return Precision::FP32; }
+  // Identification for result tables (model, backend, batch, ...).
+  virtual std::map<std::string, std::string> labels() const { return {}; }
 
   // Allocate and initialize. May enqueue work on `s`; the runner synchronizes
   // after setup so none of it leaks into a timed sample.
