@@ -14,7 +14,7 @@ import sys
 from collections import defaultdict
 
 DEAD = re.compile(r"20trap_dead_fma_kernel")
-LIVE = re.compile(r"(?<![A-Za-z0-9_])10fma_kernel")
+LIVE = re.compile(r"10fma_kernelE")  # e.g. ..._GLOBAL__N_110fma_kernelEPfiff
 
 
 def functions(sass: str):
@@ -49,8 +49,13 @@ def main() -> int:
         if kind:
             ffma[kind][arch] = sum(1 for l in body if re.search(r"\bFFMA\b", l))
             if kind == "dead":
+                ops = []
+                for l in body:
+                    m = re.search(r"\*/\s+(?:@!?U?P\w+\s+)?([A-Z][A-Z0-9_.]*)", l)
+                    if m:
+                        ops.append(m.group(1))
                 print(f"{arch} trap_dead_fma_kernel: {len(body)} instructions, "
-                      f"{ffma[kind][arch]} FFMA")
+                      f"{ffma[kind][arch]} FFMA: {' '.join(ops)}")
             else:
                 print(f"{arch} fma_kernel (control): {ffma[kind][arch]} FFMA")
 
