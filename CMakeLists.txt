@@ -40,6 +40,7 @@ add_library(trtbench_core
   src/core/traps.cpp
   src/core/traps_synthetic.cpp
   src/core/layer_profile.cpp
+  src/core/ln_reference.cpp
 )
 target_include_directories(trtbench_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(trtbench_core PUBLIC nlohmann_json::nlohmann_json)
@@ -70,6 +71,7 @@ if(TB_ENABLE_CUDA)
     src/cuda/clock_lock.cpp
     src/cuda/builtin_workloads.cu
     src/cuda/traps_gpu.cu
+    src/cuda/layernorm.cu
   )
   target_link_libraries(trtbench_cuda
     PUBLIC trtbench_core CUDA::cudart_static

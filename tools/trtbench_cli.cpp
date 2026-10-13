@@ -22,6 +22,7 @@
 #ifdef TRTBENCH_HAVE_CUDA
 #include "trtbench/cuda/builtin_workloads.hpp"
 #include "trtbench/cuda/device_context.hpp"
+#include "trtbench/cuda/layernorm.hpp"
 #include "trtbench/cuda/runner.hpp"
 #include "trtbench/cuda/traps_gpu.hpp"
 #endif
@@ -44,6 +45,13 @@ Workloads:
                       (default: all, or none when --engine/--ingest is given)
   --copy-mib N        copy size in MiB            (default: max(256, 16 x L2))
   --fma-iters N       FMA loop iterations         (default: 16384)
+
+Phase 4 kernels (fused residual add + LayerNorm; not part of --op all):
+  --op ln             time every kernel x dtype x shape below
+  --ln-rows LIST      comma-separated row counts  (default: 128,1024,8192,65536)
+  --ln-hidden N       hidden size                 (default: 768)
+  --ln-kernels LIST   naive,block,warp            (default: all three)
+  --ln-dtypes LIST    fp32,fp16                   (default: both)
 
 TensorRT (builds with -DTB_ENABLE_TENSORRT=ON):
   --engine META       time the engine described by META (engines.py writes
@@ -112,7 +120,24 @@ struct Args {
   std::vector<std::string> profile;
   std::string profile_out;
   int profile_runs = 200;
+  std::vector<int> ln_rows{128, 1024, 8192, 65536};
+  int ln_hidden = 768;
+  std::vector<std::string> ln_kernels{"naive", "block", "warp"};
+  std::vector<std::string> ln_dtypes{"fp32", "fp16"};
 };
+
+std::vector<std::string> split(const std::string& s) {
+  std::vector<std::string> out;
+  std::size_t start = 0;
+  while (start <= s.size()) {
+    const std::size_t comma = s.find(',', start);
+    const std::string part = s.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
+    if (!part.empty()) out.push_back(part);
+    if (comma == std::string::npos) break;
+    start = comma + 1;
+  }
+  return out;
+}
 
 [[noreturn]] void usage_error(const std::string& msg) {
   std::fprintf(stderr, "trtbench: %s\n\n%s", msg.c_str(), kUsage);
@@ -155,6 +180,15 @@ Args parse(int argc, char** argv) {
       a.cuda_graph = true;
     } else if (f == "--engine-eval") {
       a.engine_eval = next();
+    } else if (f == "--ln-rows") {
+      a.ln_rows.clear();
+      for (const auto& x : split(next())) a.ln_rows.push_back(static_cast<int>(to_long(f, x.c_str())));
+    } else if (f == "--ln-hidden") {
+      a.ln_hidden = static_cast<int>(to_long(f, next()));
+    } else if (f == "--ln-kernels") {
+      a.ln_kernels = split(next());
+    } else if (f == "--ln-dtypes") {
+      a.ln_dtypes = split(next());
     } else if (f == "--engine-profile") {
       a.profile.push_back(next());
     } else if (f == "--profile-out") {
@@ -212,7 +246,15 @@ Args parse(int argc, char** argv) {
   }
   if (const std::string e = validate(a.cfg); !e.empty()) usage_error(e);
   if (!a.op_given && (!a.engines.empty() || !a.ingest.empty())) a.op = "none";
-  if (a.op != "all" && a.op != "empty" && a.op != "copy" && a.op != "fma" && a.op != "none")
+  for (const auto& k : a.ln_kernels)
+    if (k != "naive" && k != "block" && k != "warp") usage_error("unknown --ln-kernels entry '" + k + "'");
+  for (const auto& d : a.ln_dtypes)
+    if (d != "fp32" && d != "fp16") usage_error("unknown --ln-dtypes entry '" + d + "'");
+  for (int r : a.ln_rows)
+    if (r < 1) usage_error("--ln-rows entries must be >= 1");
+  if (a.ln_hidden < 1) usage_error("--ln-hidden must be >= 1");
+  if (a.op != "all" && a.op != "empty" && a.op != "copy" && a.op != "fma" && a.op != "none" &&
+      a.op != "ln")
     usage_error("unknown op '" + a.op + "'");
   if (!a.engine_eval.empty() && a.eval_out.empty()) usage_error("--engine-eval needs --eval-out");
   if (!a.profile.empty() && a.profile_out.empty()) usage_error("--engine-profile needs --profile-out");
@@ -381,6 +423,24 @@ int main(int argc, char** argv) {
       ws.push_back(cuda::make_copy(bytes));
     }
     if (a.op == "fma" || a.op == "all") ws.push_back(cuda::make_fma(a.fma_iters));
+    if (a.op == "ln") {
+      for (const auto& d : a.ln_dtypes) {
+        const ln::DType t = d == "fp16" ? ln::DType::F16 : ln::DType::F32;
+        for (int rows : a.ln_rows) {
+          for (const auto& k : a.ln_kernels) {
+            const cuda::LnVariant v = k == "naive"   ? cuda::LnVariant::Naive
+                                      : k == "block" ? cuda::LnVariant::Block
+                                                     : cuda::LnVariant::Warp;
+            if (!cuda::ln_variant_supported(v, a.ln_hidden, t)) {
+              std::fprintf(stderr, "trtbench: %s kernel does not support hidden=%d at %s; skipped\n",
+                           k.c_str(), a.ln_hidden, d.c_str());
+              continue;
+            }
+            ws.push_back(cuda::make_add_layernorm(v, t, rows, a.ln_hidden));
+          }
+        }
+      }
+    }
 #ifdef TRTBENCH_HAVE_TENSORRT
     for (const auto& m : a.engines) {
       ws.push_back(trt::make_engine_workload(m, false));
