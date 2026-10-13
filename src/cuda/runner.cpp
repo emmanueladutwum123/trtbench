@@ -65,6 +65,10 @@ Sample measure(Workload& w, DeviceContext& ctx, int launches, bool flush, int it
 }  // namespace
 
 Result run(Workload& w, const BenchConfig& cfg, DeviceContext& ctx) {
+  return run(w, cfg, ctx, ctx.clocks());
+}
+
+Result run(Workload& w, const BenchConfig& cfg, DeviceContext& ctx, ClockSource& clocks) {
   if (const std::string err = validate(cfg); !err.empty()) throw std::invalid_argument(err);
   const int launches = cfg.mode == Mode::Latency ? 1 : cfg.launches_per_sample;
   cudaStream_t s = ctx.stream();
@@ -75,7 +79,6 @@ Result run(Workload& w, const BenchConfig& cfg, DeviceContext& ctx) {
   TB_CUDA_CHECK(cudaStreamSynchronize(s));
   TB_CUDA_CHECK(cudaGetLastError());
 
-  ClockSource& clocks = ctx.clocks();
   const auto origin = Clock::now();
   auto snap = [&] {
     ClockSnapshot c = clocks.sample();

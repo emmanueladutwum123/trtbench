@@ -23,8 +23,10 @@ jobs:
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} -DTB_ENABLE_CUDA=OFF
       - name: Build
         run: cmake --build build -j
-      - name: C++ unit tests
+      - name: C++ unit tests + self-test
         run: ctest --test-dir build --output-on-failure
+      - name: Self-test table
+        run: ./build/trtbench --self-test
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -50,6 +52,12 @@ jobs:
         run: cmake --build build -j
       - name: Tests (GPU tests must report SKIPPED)
         run: ctest --test-dir build --output-on-failure
+      - name: Self-test (synthetic traps pass, GPU traps skip)
+        run: ./build/trtbench --self-test
+      - name: T1 dead-code elimination is real (SASS)
+        run: |
+          apt-get install -y --no-install-recommends python3
+          python3 scripts/check_dce_sass.py build/trtbench
       - name: CLI fails cleanly without a device
         run: |
           ./build/trtbench --help > /dev/null

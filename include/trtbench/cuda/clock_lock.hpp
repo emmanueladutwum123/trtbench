@@ -20,9 +20,11 @@ class ClockLock {
 
   bool locked() const { return locked_; }
   const std::string& status() const { return status_; }
+  unsigned mhz() const { return mhz_; }
 
  private:
   int index_;
+  unsigned mhz_;
   bool locked_ = false;
   std::string status_;
 };

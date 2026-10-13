@@ -1,9 +1,9 @@
-// trtbench: run the Phase 1 reference workloads through the measurement
-// harness and emit a JSON report.
+// trtbench: run the reference workloads through the measurement harness and
+// emit a JSON report, or run the trap suite with --self-test.
 //
-// Exit status: 0 all results trustworthy, 3 at least one result failed its
-// audit, 2 usage error, 1 runtime error. A run that produced an impossible
-// number fails; it does not just print.
+// Exit status: 0 success, 1 runtime error, 2 usage error, 3 at least one
+// result failed its audit, 4 at least one self-test trap failed. A run that
+// produced an impossible number fails; it does not just print.
 
 #include <algorithm>
 #include <cstdio>
@@ -15,17 +15,26 @@
 #include <string>
 #include <vector>
 
+#include "trtbench/context_options.hpp"
+#include "trtbench/json.hpp"
+#include "trtbench/traps.hpp"
+
+#ifdef TRTBENCH_HAVE_CUDA
 #include "trtbench/cuda/builtin_workloads.hpp"
-#include "trtbench/cuda/check.hpp"
 #include "trtbench/cuda/device_context.hpp"
 #include "trtbench/cuda/runner.hpp"
-#include "trtbench/json.hpp"
+#include "trtbench/cuda/traps_gpu.hpp"
+#endif
 
 using namespace trtbench;
 
 namespace {
 
 constexpr const char* kUsage = R"(usage: trtbench [options]
+
+Self-test:
+  --self-test         run the trap suite: deliberately wrong benchmarks the
+                      harness must reject. GPU traps skip without a device.
 
 Workloads:
   --op NAME           empty | copy | fma | all   (default: all)
@@ -64,6 +73,7 @@ struct Args {
   cuda::ContextOptions ctx;
   std::string json_path;
   bool samples = true;
+  bool self_test = false;
 };
 
 [[noreturn]] void usage_error(const std::string& msg) {
@@ -96,6 +106,8 @@ Args parse(int argc, char** argv) {
     if (f == "-h" || f == "--help") {
       std::fputs(kUsage, stdout);
       std::exit(0);
+    } else if (f == "--self-test") {
+      a.self_test = true;
     } else if (f == "--op") {
       a.op = next();
     } else if (f == "--copy-mib") {
@@ -146,6 +158,7 @@ Args parse(int argc, char** argv) {
   return a;
 }
 
+#ifdef TRTBENCH_HAVE_CUDA
 std::string us(double ms) {
   char b[32];
   std::snprintf(b, sizeof b, "%.2f", ms * 1e3);
@@ -194,11 +207,61 @@ void print_result(const Result& r) {
     std::printf("   [%s] %s: %s\n", to_string(x.severity), to_string(x.flag), x.detail.c_str());
   std::printf("\n");
 }
+#endif
+
+int self_test(const Args& a) {
+  std::vector<TrapResult> rows = run_synthetic_traps();
+  nlohmann::json env = nullptr;
+  std::string device = "none";
+#ifdef TRTBENCH_HAVE_CUDA
+  std::string why;
+  if (cuda::cuda_device_count(&why) > 0) {
+    auto ctx = cuda::DeviceContext::create(a.ctx);
+    device = ctx->env().gpu_name;
+    env = to_json(ctx->env());
+    for (auto& t : cuda::run_gpu_traps(*ctx)) rows.push_back(std::move(t));
+  } else {
+    for (auto& t : skipped_traps(gpu_trap_specs(), "gpu", "no CUDA device: " + why))
+      rows.push_back(std::move(t));
+  }
+#else
+  for (auto& t : skipped_traps(gpu_trap_specs(), "gpu",
+                               "built without CUDA (configure with -DTB_ENABLE_CUDA=ON)"))
+    rows.push_back(std::move(t));
+#endif
+  std::printf("trtbench self-test: deliberately wrong benchmarks the harness must reject\n");
+  std::printf("device: %s   git: %s\n\n", device.c_str(), build_git_sha().c_str());
+  std::fputs(render_trap_table(rows).c_str(), stdout);
+
+  if (!a.json_path.empty()) {
+    nlohmann::json j = {{"git_sha", build_git_sha()}, {"environment", env}};
+    j["traps"] = nlohmann::json::array();
+    for (const auto& t : rows) j["traps"].push_back(to_json(t));
+    j["all_passed"] = no_failures(rows);
+    std::ofstream(a.json_path) << j.dump(2) << "\n";
+    std::printf("wrote %s\n", a.json_path.c_str());
+  }
+  return no_failures(rows) ? 0 : 4;
+}
 
 }  // namespace
 
 int main(int argc, char** argv) {
   const Args a = parse(argc, argv);
+  if (a.self_test) {
+    try {
+      return self_test(a);
+    } catch (const std::exception& e) {
+      std::fprintf(stderr, "trtbench: self-test aborted: %s\n", e.what());
+      return 1;
+    }
+  }
+#ifndef TRTBENCH_HAVE_CUDA
+  std::fprintf(stderr,
+               "trtbench: this build has no CUDA support (configure with -DTB_ENABLE_CUDA=ON); "
+               "only --self-test is available\n");
+  return 2;
+#else
   try {
     auto ctx = cuda::DeviceContext::create(a.ctx);
     if (a.ctx.lock_clocks) std::printf("Clock lock %s\n", ctx->lock_status().c_str());
@@ -237,4 +300,5 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "trtbench: %s\n", e.what());
     return 1;
   }
+#endif
 }

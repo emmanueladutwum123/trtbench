@@ -19,7 +19,7 @@ std::pair<int, std::string> run_command(const std::string& cmd) {
   return {code, out};
 }
 
-ClockLock::ClockLock(int nvml_index, unsigned mhz) : index_(nvml_index) {
+ClockLock::ClockLock(int nvml_index, unsigned mhz) : index_(nvml_index), mhz_(mhz) {
   if (nvml_index < 0) {
     status_ = "not attempted: NVML unavailable, so the CUDA device cannot be mapped to an "
               "nvidia-smi index";

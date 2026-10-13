@@ -36,6 +36,8 @@ add_library(trtbench_core
   src/core/result.cpp
   src/core/compare.cpp
   src/core/json.cpp
+  src/core/traps.cpp
+  src/core/traps_synthetic.cpp
 )
 target_include_directories(trtbench_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(trtbench_core PUBLIC nlohmann_json::nlohmann_json)
@@ -65,6 +67,7 @@ if(TB_ENABLE_CUDA)
     src/cuda/nvml.cpp
     src/cuda/clock_lock.cpp
     src/cuda/builtin_workloads.cu
+    src/cuda/traps_gpu.cu
   )
   target_link_libraries(trtbench_cuda
     PUBLIC trtbench_core CUDA::cudart_static
@@ -74,13 +77,22 @@ if(TB_ENABLE_CUDA)
   target_compile_options(trtbench_cuda PRIVATE
     $<$<COMPILE_LANGUAGE:CXX>:${TB_HOST_WARNINGS}>
     $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-Wall,-Wextra --Werror=all-warnings -lineinfo>)
+endif()
 
-  add_executable(trtbench tools/trtbench_cli.cpp)
+# The CLI builds either way. Without CUDA only --self-test is available, and
+# its GPU traps report SKIP with the reason.
+add_executable(trtbench tools/trtbench_cli.cpp)
+target_compile_options(trtbench PRIVATE ${TB_HOST_WARNINGS})
+if(TB_ENABLE_CUDA)
   target_link_libraries(trtbench PRIVATE trtbench_cuda)
-  target_compile_options(trtbench PRIVATE ${TB_HOST_WARNINGS})
+  target_compile_definitions(trtbench PRIVATE TRTBENCH_HAVE_CUDA=1)
+else()
+  target_link_libraries(trtbench PRIVATE trtbench_core)
 endif()
 
 if(TB_BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests/cpp)
+  # The trap suite is a test of the harness: a failing trap fails ctest.
+  add_test(NAME self_test COMMAND trtbench --self-test)
 endif()

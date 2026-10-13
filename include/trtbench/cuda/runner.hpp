@@ -14,4 +14,8 @@ namespace trtbench::cuda {
 // on any CUDA failure, std::invalid_argument on an invalid config.
 Result run(Workload& w, const BenchConfig& cfg, DeviceContext& ctx);
 
+// Same, observing clocks through `clocks` instead of ctx.clocks(). Used by the
+// trap suite to inject a clock drop into an otherwise real run.
+Result run(Workload& w, const BenchConfig& cfg, DeviceContext& ctx, ClockSource& clocks);
+
 }  // namespace trtbench::cuda

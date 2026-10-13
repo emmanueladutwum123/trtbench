@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "trtbench/clocks.hpp"
+#include "trtbench/context_options.hpp"
 #include "trtbench/cuda/clock_lock.hpp"
 #include "trtbench/result.hpp"
 
@@ -16,13 +17,6 @@ namespace trtbench::cuda {
 // Number of usable CUDA devices; 0 (with `why` set) when there is no device
 // or no driver. Never throws.
 int cuda_device_count(std::string* why = nullptr);
-
-struct ContextOptions {
-  int device = 0;
-  bool lock_clocks = false;
-  unsigned lock_mhz = 0;   // 0 = NVML default application clock (the sustainable base clock)
-  bool calibrate = true;   // measure launch floors and the copy-bandwidth peak
-};
 
 // Owns everything that must exist before any timing starts: the CUDA context,
 // a stream, the timing events, the L2 flush buffer, clock observation and
@@ -44,6 +38,8 @@ class DeviceContext {
   ClockSource& clocks() { return *clocks_; }
   bool clocks_locked() const { return lock_ && lock_->locked(); }
   const std::string& lock_status() const { return lock_status_; }
+  unsigned locked_mhz() const { return clocks_locked() ? lock_->mhz() : 0; }
+  int nvml_index() const { return nvml_index_; }  // -1 without NVML
 
   const Environment& env() const { return env_; }
   const DevicePeaks& peaks() const { return peaks_; }
