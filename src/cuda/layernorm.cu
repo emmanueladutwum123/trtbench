@@ -2,7 +2,6 @@
 
 #include <cuda_fp16.h>
 
-#include <cstring>
 #include <stdexcept>
 
 #include "trtbench/cuda/check.hpp"
@@ -220,8 +219,9 @@ template <>
 std::vector<__half> to_storage<__half>(const std::vector<float>& f) {
   std::vector<__half> out(f.size());
   for (std::size_t i = 0; i < f.size(); ++i) {
-    const std::uint16_t h = ln::float_to_half(f[i]);
-    std::memcpy(&out[i], &h, 2);
+    __half_raw raw;
+    raw.x = ln::float_to_half(f[i]);
+    out[i] = __half(raw);
   }
   return out;
 }
@@ -233,9 +233,8 @@ template <>
 std::vector<float> from_storage<__half>(const std::vector<__half>& d) {
   std::vector<float> out(d.size());
   for (std::size_t i = 0; i < d.size(); ++i) {
-    std::uint16_t h;
-    std::memcpy(&h, &d[i], 2);
-    out[i] = ln::half_to_float(h);
+    const __half_raw raw = static_cast<__half_raw>(d[i]);
+    out[i] = ln::half_to_float(raw.x);
   }
   return out;
 }

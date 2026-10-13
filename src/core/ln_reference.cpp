@@ -71,6 +71,9 @@ float input_value(std::uint32_t index, std::uint32_t salt, float lo, float hi) {
   h *= 0xC2B2AE35u;
   h ^= h >> 16;
   const float u = static_cast<float>(h >> 8) * (1.0f / 16777216.0f);  // [0, 1), exact
+  // Every caller's hi - lo is a power of two, so the product is exact and the
+  // result is the same whether or not a compiler fuses this into an FMA
+  // (and the same as NumPy's float32 arithmetic in phase4.py).
   return lo + (hi - lo) * u;
 }
 

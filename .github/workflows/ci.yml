@@ -65,6 +65,9 @@ jobs:
       - name: T1 dead-code elimination is real (SASS)
         run: |
           python3 scripts/check_dce_sass.py build/trtbench
+      - name: Phase 4 kernels compile to what they claim (SASS)
+        run: |
+          python3 scripts/check_ln_sass.py build/trtbench
       - name: CLI fails cleanly without a device
         run: |
           ./build/trtbench --help > /dev/null

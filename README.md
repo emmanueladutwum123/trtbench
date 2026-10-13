@@ -16,7 +16,7 @@ inconsistent** instead of printing them.
 | 5 | Trap suite: deliberately wrong benchmarks the harness must reject (`--self-test`) | **Done.** 12/12 traps pass on a Tesla T4; synthetic layer and SASS check run in CI |
 | 2 | TensorRT FP32/FP16/INT8 vs PyTorch eager vs ONNX Runtime; CUDA Graphs | **First T4 run rejected by the harness itself (31 of 54 timings: clock drift, broken INT8). Both causes fixed; rerun pending.** [Details](#first-t4-run-rejected) |
 | 3 | Per-layer attribution (IProfiler), fusion diff vs ONNX, roofline classification | **Built, not yet run.** Analysis unit-tested on CPU; GPU profiling waits for Colab GPU quota. [Method](#phase-3-where-the-time-goes) |
-| 4 | Fused LayerNorm + residual kernel, naive vs optimized, Nsight Compute | Planned |
+| 4 | Fused LayerNorm + residual kernel, naive vs optimized, Nsight Compute | **Built, not yet run.** Reference and tolerance tested on CPU; kernels compile in CI and their SASS is checked; timing waits for the GPU. [Method](#phase-4-a-fused-residual-add--layernorm-kernel) |
 
 ## Results
 
@@ -457,6 +457,85 @@ node names.
 Tables are generated from the committed `attribution.json` by
 `python -m trtbench.attribution render`, never typed.
 
+## Phase 4: a fused residual add + LayerNorm kernel
+
+**The operation**, as in every pre-LN transformer block (GPT-2):
+`s = x + r` (the new residual stream) and `y = LayerNorm(s)·γ + β`, over rows
+of 768, writing both s and y, with FP32 or FP16 storage and FP32 arithmetic.
+s is rounded to the storage type before it is normalized, which is what an
+unfused framework does. Unfused, that is two kernels and five tensor passes
+(add: read x, r, write s; LayerNorm: read s, write y). Fused, it is one
+kernel and four. **No GPU results yet**; `scripts/run_phase4.sh` produces
+them.
+
+**Three kernels** (`src/cuda/layernorm.cu`), each adding one idea:
+
+| Kernel | Mapping | What it fixes | What it still does badly |
+|---|---|---|---|
+| naive | one thread per row | – | a warp's 32 loads hit addresses one row (1.5 KB in FP16) apart: one useful element per 32-byte sector, so ~6% of each FP16 transaction is used. 128 rows launch 128 threads on 40 SMs. Three passes over the row. |
+| block | one 256-thread block per row | coalescing: consecutive threads read consecutive elements; every row gets its own block | scalar 2- or 4-byte loads; two shared-memory tree reductions, each with log₂(256) = 8 `__syncthreads`; the variance and normalize passes re-read s from cache |
+| warp | one warp per row, 4 rows per 128-thread block | 16-byte vector loads (`float4`, 8 halves); the whole row in registers (24 values per lane at 768), so DRAM is read once and written once; mean and variance by 5-step `__shfl_xor_sync` butterflies; no shared memory and no barrier | needs hidden = multiple of 128 (FP32) or 256 (FP16), at most 8 vectors per lane |
+
+Registers, not shared memory, hold the row in the warp kernel because a warp
+owns its row outright; shared memory would only add a store, a load and a
+barrier. Occupancy is reported by Nsight Compute rather than tuned by guess.
+
+**The compiled code is checked, not assumed.** In CI,
+`scripts/check_ln_sass.py` reads the SASS of every architecture in the
+binary and fails unless: the warp kernel has 128-bit global loads and stores
+and `SHFL.BFLY`, and no shared memory or `BAR.SYNC`; the block kernel has
+shared memory and `BAR.SYNC` and no 128-bit loads; the naive kernel has none
+of these.
+
+**Correctness.** Every timed run checks every row of both outputs against a
+CPU reference (`src/core/ln_reference.cpp`):
+- **s must be bit-exact.** It is one FP32 add and one round-to-nearest-even
+  conversion on both sides. The CPU's FP16 conversion is tested against all
+  65,536 halves, every rounding midpoint, and 2 million random floats against
+  the compiler's `_Float16`.
+- **y must be within** `tol = ulp_T(|y|+d)/2 + d`, where `d = 2·H·u₃₂·(1+|y|)`
+  and u₃₂ = 2⁻²⁴. The reference is computed in double. The kernel's FP32
+  sums of H terms have relative error at most about H·u₃₂ (Higham, *Accuracy
+  and Stability of Numerical Algorithms*, §4.2). Mean and variance each
+  contribute one such term, scaled by |y − β| ≤ |y| + 1 since |β| ≤ 0.5;
+  `rsqrtf`'s 2-ulp error is far below that. The half ulp is the final
+  rounding to the storage type. For FP16 at |y| = 1 and H = 768 this is
+  4.9e-4 + 1.8e-4; for FP32 it is about 1.8e-4. The bound is the worst case
+  for the naive kernel's sequential sums; the tree reductions sit well
+  inside it. The table reports the worst observed error as a fraction of the
+  tolerance, so the margin is visible rather than assumed.
+- The CPU tests show that a correctly rounded output passes, and that two
+  FP16 ulps of error in a single element, one wrong bit in s, or a NaN each
+  fail.
+
+**What is measured.**
+- Shapes: 128, 1,024, 8,192 and 65,536 rows × 768. 128 and 1,024 are BERT
+  and GPT-2 at batch 1 and 8 × 128 tokens. At 128 rows the four tensors
+  (0.8 MB in FP16) fit in the T4's 4 MB L2; at 1,024 rows (6.3 MB in FP16,
+  12.6 MB in FP32) they do not.
+  65,536 rows (100 MB per FP16 tensor) is far beyond L2, so it measures
+  DRAM.
+- Bytes are the fused minimum, 4·rows·H + 2·H elements, for every kernel and
+  for PyTorch alike. Achieved bandwidth therefore shows how close each comes
+  to the minimum traffic, and PyTorch's extra pass shows up as lower
+  achieved bandwidth.
+- Baseline: PyTorch eager, `torch.add(x, r, out=s)` followed by
+  `F.layer_norm(s)`, timed by the same per-sample protocol, checked with the
+  same rule, and audited in the same `trtbench` process.
+- Roofline: % of the measured copy bandwidth (the achievable reference) and
+  of the theoretical DRAM peak, at the same 495 MHz lock as Phases 2–3.
+  Memory clock is not locked and does not need to be: `-lgc` sets only the
+  SM clock.
+- Nsight Compute, where permitted: one profiled launch per kernel and dtype
+  at the largest shape. It captures DRAM and SM throughput, achieved versus
+  theoretical occupancy, registers per thread, and the top warp-stall
+  reasons. `--clock-control none` keeps the lock. Where `ncu` is missing or
+  counter access is denied, the tables say so and the reason is committed.
+
+**Stopping rule**: once the warp kernel at the DRAM-bound shape is close to
+the measured copy bandwidth, the kernel cannot go meaningfully faster, and
+the README will say that instead of adding a fourth kernel.
+
 ## The trap suite (`--self-test`)
 
 A harness that never sees a wrong measurement has not shown it can catch
@@ -540,6 +619,7 @@ CMake.
 ./scripts/run_phase1.sh                       # clocks unlocked, drift-checked
 WORK=/path/to/work ./scripts/run_phase2.sh    # Phase 2, locked at 495 MHz
 WORK=/path/to/work ./scripts/run_phase3.sh    # Phase 3 on the same engines
+./scripts/run_phase4.sh                       # Phase 4 kernels, baseline, Nsight Compute
 sudo -E ./scripts/run_phase1.sh --lock-clocks=1100   # locked where permitted
 python -m trtbench.diff results/A/phase1_latency.json results/B/phase1_latency.json
 ```
@@ -555,16 +635,17 @@ own p50-to-p90 spread, it labels the change as within run-to-run spread.
 include/trtbench/       core interfaces (pure C++17)
 include/trtbench/cuda/  Workload, DeviceContext, runner, NVML, clock lock
 src/core/               stats, clocks, roofline, audit, compare, JSON,
-                        per-layer profile bookkeeping
-src/cuda/               event-timed runner, NVML via dlopen, calibration kernels
+                        per-layer profile bookkeeping, LayerNorm reference
+src/cuda/               event-timed runner, NVML via dlopen, calibration kernels,
+                        Phase 4 fused add + LayerNorm kernels
 src/trt/                TensorRT engine workload (timing, CUDA graph,
                         evaluation, IProfiler + inspector profiling)
 tools/                  trtbench CLI (CPU-only builds: --self-test only)
-scripts/                run_phase1/2/3.sh, gpu_env.sh, setup_tensorrt.sh,
-                        check_dce_sass.py, diagnose_int8.py
+scripts/                run_phase1/2/3/4.sh, gpu_env.sh, setup_tensorrt.sh,
+                        check_dce_sass.py, check_ln_sass.py, diagnose_int8.py
 python/trtbench/        reports and diff; Phase 2 models, data, ONNX stats,
                         INT8 recipes, engine builds, PyTorch/ORT runner;
-                        Phase 3 attribution
+                        Phase 3 attribution; Phase 4 baseline and tables
 tests/cpp, tests/python unit tests; GPU tests skip without a device
 results/                committed raw JSON from real runs
 ```
@@ -637,6 +718,17 @@ results/                committed raw JSON from real runs
     memory/compute call can flip; such layers are marked.
   - The profiler perturbs what it measures. Shares are of the profiled sum,
     which is reported next to the unprofiled latency.
+- **Phase 4 scope.**
+  - One operation, one hidden size (768), two storage types. BF16 and
+    hidden sizes the warp kernel does not support (not a multiple of
+    128/256, or over 8 vectors per lane) are not measured; the naive and
+    block kernels handle them and are tested on hidden = 1000.
+  - The baseline is PyTorch eager. Fused implementations in libraries
+    (Apex, TensorRT's own fusion of this pattern, `torch.compile`) are not
+    timed here; Phase 3 shows what TensorRT does with the pattern inside
+    the engines.
+  - Inputs are uniform random, not real activations. Run time does not
+    depend on values; the error margin is reported for these inputs only.
 - Not tested: multi-GPU, MIG, MPS, distributed inference, or concurrent
   workloads sharing the GPU.
 
